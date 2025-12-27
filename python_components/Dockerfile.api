@@ -1,0 +1,52 @@
+# RiskBeacon API Dockerfile
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies with cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install CPU-only PyTorch first (smaller, ~400MB vs 900MB with CUDA)
+# This saves significant disk space and download time
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# Copy requirements (torch not included - installed above)
+COPY requirements.txt .
+
+# Install remaining Python dependencies with cache mount
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY api/ ./api/
+COPY controllers/ ./controllers/
+COPY services/ ./services/
+COPY backend/ ./backend/
+COPY utils/ ./utils/
+COPY config.py ./
+COPY download_data.py ./
+
+# Create necessary directories
+RUN mkdir -p dataInCsv plots historicalData experiments/regime_detection/models
+
+# Note: Data directories will be mounted as volumes at runtime
+# They can also be downloaded from Kaggle or provided via volumes
+# No need to copy them at build time since they're mounted
+
+# Expose API port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
+
+# Run API
+CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

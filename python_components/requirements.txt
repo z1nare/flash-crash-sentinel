@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+pandas
+numpy
+requests
+plotly
+streamlit
+pydantic
+pydantic-settings
+openpyxl
+transformers
+torch
+
+# Optional integrations:
+# ibapi
+# hmmlearn
+

@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation (keep ActionPlan.md)
+*.md
+!ActionPlan.md
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Data files (will be mounted as volumes)
+# historicalData/
+# dataInCsv/
+# experiments/
+# plots/
+
+# Unnecessary files
+misc/
+test_data/
+tests/
+*.ipynb
+*.bat
+*.ps1
+debug_*.py
+test_*.py
+*_test.py
+run_dashboard_simple.py
+start_dashboard.bat
+setup_env.ps1
+calculate_regimes_historical.py
+frontend/debug_data.py
+frontend/QUICKSTART.md
+frontend/README.md
+
+# Streamlit cache
+.streamlit/cache/
+
+
