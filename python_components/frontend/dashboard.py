@@ -99,16 +99,21 @@ with st.sidebar:
                 else:
                     st.info("⚪ IB Not Connected")
                     st.caption("Using historical data only")
+                    # Allow overriding connection params (common issue: IB Gateway paper uses 4002)
+                    with st.expander("IB Connection Settings", expanded=False):
+                        ib_host = st.text_input("Host", value="127.0.0.1", key="ib_host")
+                        ib_port = st.number_input("Port", min_value=1, max_value=65535, value=7497, step=1, key="ib_port")
+                        ib_client_id = st.number_input("Client ID", min_value=0, max_value=9999, value=1, step=1, key="ib_client_id")
                     if st.button("Connect to IB", use_container_width=True, key="ib_connect"):
                         with st.spinner("Connecting to IB Gateway..."):
-                            result = api_client.connect_ib()
+                            result = api_client.connect_ib(host=ib_host, port=int(ib_port), client_id=int(ib_client_id))
                             if result.get('success'):
                                 st.success("✅ Connected to IB!")
                                 st.rerun()
                             else:
                                 error_msg = result.get('error', result.get('detail', 'Unknown error'))
                                 st.error(f"Connection failed: {error_msg}")
-                                st.info("💡 Make sure IB Gateway is running and API settings are enabled (Port 7497 for paper trading)")
+                                st.info("💡 Common ports: TWS paper=7497, TWS live=7496, IB Gateway paper=4002, IB Gateway live=4001.")
             else:
                 st.info("⚪ IB Not Available")
         except Exception as e:

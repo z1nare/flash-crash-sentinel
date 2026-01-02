@@ -1,6 +1,7 @@
 from collections import deque
 from typing import Optional
 from backend.models.domain import TickerDTO
+import numpy as np
 import sys
 import os
 
@@ -14,6 +15,9 @@ class VpinService:
     # Configuration
     BUCKET_VOLUME = 100000.0
     BUCKET_WINDOW = 50
+    # Heuristic scale for converting candle return into buy/sell probability.
+    # This avoids VPIN saturating at ~1.0 when we only have OHLC bars (not tick-by-tick trade direction).
+    PRICE_IMPACT_SCALE = 50.0
 
     class _VpinState:
         # __slots__ saves memory by preventing the creation of a __dict__ for each instance
@@ -59,13 +63,16 @@ class VpinService:
             return None
 
         # 1. Classify Trade Direction (Bulk Volume Classification)
-        # We calculate the ratio once per tick to avoid floating point drift in the loop
-        if ticker_dto.close > ticker_dto.open:
-            buy_ratio = 1.0
-        elif ticker_dto.close < ticker_dto.open:
-            buy_ratio = 0.0
+        # NOTE: With aggregated OHLC bars we do NOT know true buy/sell initiated volume.
+        # The old hard rule (close>open => 100% buy) makes VPIN saturate near 1.0 and
+        # breaks downstream regime detection. We use a smooth heuristic based on
+        # candle return to produce a probability in (0,1).
+        if ticker_dto.open and ticker_dto.open > 0:
+            ret = (float(ticker_dto.close) - float(ticker_dto.open)) / float(ticker_dto.open)
         else:
-            buy_ratio = 0.5
+            ret = 0.0
+        buy_ratio = 0.5 + 0.5 * float(np.tanh(ret * self.PRICE_IMPACT_SCALE))
+        buy_ratio = max(0.0, min(1.0, buy_ratio))
         
         sell_ratio = 1.0 - buy_ratio
 

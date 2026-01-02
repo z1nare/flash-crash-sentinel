@@ -213,11 +213,12 @@ class APIClient:
         except Exception as e:
             return pd.DataFrame()
     
-    def connect_ib(self) -> Dict[str, Any]:
-        """Connect to Interactive Brokers"""
+    def connect_ib(self, host: Optional[str] = None, port: Optional[int] = None, client_id: Optional[int] = None) -> Dict[str, Any]:
+        """Connect to Interactive Brokers (optionally overriding host/port/client_id)."""
         try:
             response = requests.post(
                 f"{self.base_url}/api/ib/connect",
+                params={k: v for k, v in {"host": host, "port": port, "client_id": client_id}.items() if v is not None},
                 timeout=self.timeout
             )
             response.raise_for_status()

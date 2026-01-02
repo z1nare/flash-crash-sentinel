@@ -40,14 +40,87 @@ class ServiceController:
             from services.ib_client_service import IBClientService
             from utils.logger import get_service_logger
             logger = get_service_logger("controller")
-            self.ib_service = IBClientService(host="127.0.0.1", port=7497, client_id=1)
+            self.ib_service = IBClientService(
+                host=os.getenv("IB_HOST", "127.0.0.1"),
+                port=int(os.getenv("IB_PORT", "7497")),
+                client_id=int(os.getenv("IB_CLIENT_ID", "1")),
+                on_bar=self.process_tick,  # feed real-time bars into existing pipeline
+            )
             # Auto-connect if environment variable is set
             if os.getenv("USE_IB_REALTIME", "false").lower() == "true":
                 logger.info("Auto-connecting to IB (USE_IB_REALTIME=true)")
                 self.ib_service.connect()
+                # Optionally auto-start streaming for configured tickers
+                tickers_csv = os.getenv("IB_STREAM_TICKERS", "").strip()
+                if tickers_csv:
+                    for t in [x.strip().upper() for x in tickers_csv.split(",") if x.strip()]:
+                        try:
+                            self.ib_service.start_realtime_bars(t)
+                        except Exception as e:
+                            logger.warning("Failed to start IB real-time bars for %s: %s", t, e)
         except Exception as e:
             # IB not available or failed to initialize - continue without it
             pass
+
+    # -----------------------
+    # Interactive Brokers API
+    # -----------------------
+    def ib_available(self) -> bool:
+        """Return True if the IB integration is available (ibapi installed and service initialized)."""
+        return bool(self.ib_service is not None and getattr(self.ib_service, "available", False))
+
+    def get_ib_status(self) -> dict:
+        """Return a small status dict used by API + dashboard."""
+        if not self.ib_service:
+            return {"available": False, "connected": False, "streaming": False, "tickers": []}
+        try:
+            info = self.ib_service.get_connection_info()
+            return {
+                "available": bool(info.available),
+                "connected": bool(info.connected),
+                "streaming": bool(info.streaming),
+                "tickers": list(info.tickers),
+            }
+        except Exception:
+            return {"available": self.ib_available(), "connected": False, "streaming": False, "tickers": []}
+
+    def connect_ib(self, host: Optional[str] = None, port: Optional[int] = None, client_id: Optional[int] = None) -> None:
+        """
+        Connect to IB Gateway/TWS.
+
+        Args:
+            host: Override IB host (default from env/initialization)
+            port: Override IB port (e.g., 7497 for TWS paper, 4002 for IB Gateway paper)
+            client_id: Override IB client id
+        """
+        if not self.ib_service:
+            raise RuntimeError("IB service not available (ibapi not installed or service init failed).")
+        # Allow runtime override (useful for different TWS/Gateway port configs)
+        if host:
+            self.ib_service.host = host
+        if port is not None:
+            self.ib_service.port = int(port)
+        if client_id is not None:
+            self.ib_service.client_id = int(client_id)
+        self.ib_service.connect()
+
+    def disconnect_ib(self) -> None:
+        """Disconnect from IB Gateway/TWS (no-op if unavailable)."""
+        if not self.ib_service:
+            return
+        self.ib_service.disconnect()
+
+    def start_ib_stream(self, ticker: str) -> None:
+        """Start streaming 5-second real-time bars for a ticker."""
+        if not self.ib_service:
+            raise RuntimeError("IB service not available.")
+        self.ib_service.start_realtime_bars(ticker)
+
+    def stop_ib_streams(self) -> None:
+        """Stop all IB streams."""
+        if not self.ib_service:
+            return
+        self.ib_service.stop_all_streams()
     
     def get_ticker_csv_path(self, ticker: str) -> str:
         """
@@ -146,28 +219,56 @@ class ServiceController:
                 vol_service = self.get_volatility_service(ticker)
                 vol_score = vol_service.process_tick(ticker_dto)
                 
-                # b. Predict regime using best model (if available)
+                # b. Predict regime (model / legacy_hmm / rule)
                 regime_state, regime_confidence = None, None
-                regime_service = self.get_regime_service(ticker)
-                if regime_service and vol_score > 0:
-                    try:
-                        regime_state, regime_confidence = regime_service.predict_regime(vpin_score, vol_score)
-                        regime_label = regime_service.get_regime_label(regime_state)
-                        print(f"[CONTROLLER] Regime: {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
-                    except Exception as e:
-                        print(f"[CONTROLLER] Error predicting regime for {ticker}: {e}")
-                else:
-                    # Try legacy HMM service for backwards compatibility
-                    legacy_model_path = os.path.join(self.LEGACY_MODELS_DIR, f"{ticker}_hmm.pkl")
-                    if os.path.exists(legacy_model_path) and vol_score > 0:
-                        try:
-                            from services.hmm_regime_service import HMMRegimeService
-                            legacy_hmm = HMMRegimeService(model_path=legacy_model_path)
-                            regime_state, regime_confidence = legacy_hmm.predict_regime(vpin_score, vol_score)
-                            regime_label = legacy_hmm.get_regime_label(regime_state)
-                            print(f"[CONTROLLER] Regime (legacy HMM): {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
-                        except Exception as e:
-                            print(f"[CONTROLLER] Error with legacy HMM for {ticker}: {e}")
+                regime_mode = os.getenv("REGIME_MODE", "model").lower().strip()
+
+                def rule_regime(vpin_val: float, vol_val: float):
+                    # Simple, explainable thresholds (daily vol, not annualized)
+                    # 0: Normal, 1: Correction, 2: Crash
+                    if vpin_val >= 0.8 and vol_val >= 0.03:
+                        state = 2
+                        conf = max((vpin_val - 0.8) / 0.2, (vol_val - 0.03) / 0.03)
+                    elif vpin_val >= 0.6 or vol_val >= 0.02:
+                        state = 1
+                        conf = max((vpin_val - 0.6) / 0.4, (vol_val - 0.02) / 0.05)
+                    else:
+                        state = 0
+                        conf = max((0.6 - vpin_val) / 0.6, (0.02 - vol_val) / 0.02)
+                    conf = float(max(0.0, min(1.0, conf)))
+                    return state, conf
+
+                if vol_score > 0:
+                    if regime_mode == "rule":
+                        regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
+                        from services.regime_service import REGIME_LABELS
+                        print(f"[CONTROLLER] Regime (rule): {regime_state} ({REGIME_LABELS.get(regime_state)}), Confidence: {regime_confidence:.2%}")
+                    elif regime_mode in ("legacy_hmm", "hmm"):
+                        legacy_model_path = os.path.join(self.LEGACY_MODELS_DIR, f"{ticker}_hmm.pkl")
+                        if os.path.exists(legacy_model_path):
+                            try:
+                                from services.hmm_regime_service import HMMRegimeService
+                                legacy_hmm = HMMRegimeService(model_path=legacy_model_path)
+                                regime_state, regime_confidence = legacy_hmm.predict_regime(vpin_score, vol_score)
+                                regime_label = legacy_hmm.get_regime_label(regime_state)
+                                print(f"[CONTROLLER] Regime (legacy HMM): {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
+                            except Exception as e:
+                                print(f"[CONTROLLER] Error with legacy HMM for {ticker}: {e}")
+                        else:
+                            # fallback to rule
+                            regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
+                    else:
+                        regime_service = self.get_regime_service(ticker)
+                        if regime_service:
+                            try:
+                                regime_state, regime_confidence = regime_service.predict_regime(vpin_score, vol_score)
+                                regime_label = regime_service.get_regime_label(regime_state)
+                                print(f"[CONTROLLER] Regime: {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
+                            except Exception as e:
+                                print(f"[CONTROLLER] Error predicting regime for {ticker}: {e}")
+                        else:
+                            # fallback to rule
+                            regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
                 
                 # c. Persist Metrics (VPIN + Volatility + Regime) to ticker-specific CSV
                 self._persist_metrics(ticker_dto, vpin_score, vol_score, regime_state, regime_confidence)
@@ -275,6 +376,22 @@ class ServiceController:
                 df['regime'] = None
             if 'regime_confidence' not in df.columns:
                 df['regime_confidence'] = None
+
+            # Normalize duplicate metric columns if they exist (prevents VPIN/vpin and vol/volatility duplication)
+            # Canonical columns for storage in historicalData are: VPIN and vol.
+            if 'vpin' in df.columns:
+                # Fill VPIN from vpin if VPIN is missing
+                try:
+                    df['VPIN'] = df['VPIN'].fillna(df['vpin'])
+                except Exception:
+                    pass
+                df = df.drop(columns=['vpin'], errors='ignore')
+            if 'volatility' in df.columns:
+                try:
+                    df['vol'] = df['vol'].fillna(df['volatility'])
+                except Exception:
+                    pass
+                df = df.drop(columns=['volatility'], errors='ignore')
             
             # Convert timestamp to datetime for comparison (normalize timezone)
             ticker_timestamp = pd.to_datetime(ticker_dto.timestamp)

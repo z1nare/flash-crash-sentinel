@@ -65,7 +65,12 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
 
     print(f"Loading market data from {data_path}...")
     df = pd.read_csv(data_path, low_memory=False)
+    # Normalize column names (lower/strip) but also handle duplicates that can occur
+    # when CSV contains both `VPIN` and `vpin` (or `vol` and `volatility`).
     df.columns = df.columns.str.lower().str.strip()
+    if df.columns.duplicated().any():
+        # Keep the *last* occurrence (most recently persisted values tend to be later)
+        df = df.loc[:, ~df.columns.duplicated(keep='last')].copy()
     
     # Safe timestamp parsing - handle mixed data types
     def safe_parse_timestamp(ts):
@@ -144,9 +149,8 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
         print(f"Error: No data found for ticker '{target_ticker}'")
         return pd.DataFrame(), None
 
-    # Map CSV column names to expected names (VPIN -> vpin, vol -> volatility)
-    if 'VPIN' in df.columns and 'vpin' not in df.columns:
-        df['vpin'] = df['VPIN']
+    # Map CSV column names to expected names (vpin/vol -> volatility)
+    # NOTE: columns are already normalized to lowercase above and duplicates removed.
     if 'vol' in df.columns and 'volatility' not in df.columns:
         df['volatility'] = df['vol']
     

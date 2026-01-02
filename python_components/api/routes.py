@@ -548,15 +548,83 @@ async def get_status(
             # If state access fails, continue with empty states
             pass
         
+        # IB status (optional)
+        ib_connection = None
+        try:
+            if hasattr(controller, "get_ib_status"):
+                ib_connection = controller.get_ib_status()
+        except Exception:
+            ib_connection = None
+
         return StatusResponse(
             services_ready=True,
             latest_metrics=latest_metrics,
-            vpin_states=vpin_states
+            vpin_states=vpin_states,
+            ib_connection=ib_connection
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error retrieving status: {str(e)}")
+
+
+# ========== INTERACTIVE BROKERS (OPTIONAL) ==========
+
+@router.post("/ib/connect")
+async def ib_connect(
+    controller: ServiceController = Depends(get_controller),
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    client_id: Optional[int] = None,
+):
+    """
+    Connect to Interactive Brokers (IB Gateway / TWS).
+    If `ibapi` isn't installed, returns available=false.
+    """
+    try:
+        if not hasattr(controller, "ib_service") or controller.ib_service is None:
+            return {"success": False, "available": False, "connected": False, "error": "IB service not available"}
+
+        controller.connect_ib(host=host, port=port, client_id=client_id)
+        return {"success": True, **controller.get_ib_status()}
+    except Exception as e:
+        return {"success": False, **(controller.get_ib_status() if hasattr(controller, "get_ib_status") else {}), "error": str(e)}
+
+
+@router.post("/ib/disconnect")
+async def ib_disconnect(controller: ServiceController = Depends(get_controller)):
+    """Disconnect from Interactive Brokers."""
+    try:
+        if not hasattr(controller, "ib_service") or controller.ib_service is None:
+            return {"success": True, "available": False, "connected": False}
+
+        controller.disconnect_ib()
+        return {"success": True, **controller.get_ib_status()}
+    except Exception as e:
+        return {"success": False, **(controller.get_ib_status() if hasattr(controller, "get_ib_status") else {}), "error": str(e)}
+
+
+@router.post("/ib/stream/start")
+async def ib_stream_start(
+    ticker: str,
+    controller: ServiceController = Depends(get_controller),
+):
+    """Start 5-second real-time bar streaming for `ticker`."""
+    try:
+        controller.start_ib_stream(ticker)
+        return {"success": True, **controller.get_ib_status()}
+    except Exception as e:
+        return {"success": False, **(controller.get_ib_status() if hasattr(controller, "get_ib_status") else {}), "error": str(e)}
+
+
+@router.post("/ib/stream/stop")
+async def ib_stream_stop(controller: ServiceController = Depends(get_controller)):
+    """Stop all IB streams."""
+    try:
+        controller.stop_ib_streams()
+        return {"success": True, **controller.get_ib_status()}
+    except Exception as e:
+        return {"success": False, **(controller.get_ib_status() if hasattr(controller, "get_ib_status") else {}), "error": str(e)}
 
 # ========== PLOT ENDPOINTS ==========
 

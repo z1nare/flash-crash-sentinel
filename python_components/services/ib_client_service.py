@@ -1,24 +1,30 @@
 """
-Interactive Brokers API Client Service
+Interactive Brokers (IB) Client Service
 
-Integrates IB API for real-time market data streaming.
-Inspired by the provided IB dashboard examples.
+This wraps the official `ibapi` EClient/EWrapper in a service-style interface
+similar to the other modules in `services/`.
+
+Design goal:
+- Keep IB-specific threading/network details isolated here.
+- Emit standard `backend.models.domain.TickerDTO` bars into the existing pipeline
+  (`ServiceController.process_tick`) so the rest of the project remains unchanged.
+
+Notes:
+- `ibapi` is an optional dependency. If it's not installed, this module still
+  imports and `IBClientService.available` will be False.
 """
+
 from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime
-from typing import Optional, Callable, Dict, List, TYPE_CHECKING
-import sys
-import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable, Dict, Optional, Set, List
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logger import get_service_logger
 from backend.models.domain import TickerDTO
-
-if TYPE_CHECKING:
-    import pandas as pd
+from utils.logger import get_service_logger
+from utils.exceptions import ServiceError
 
 logger = get_service_logger("ib_client")
 
@@ -26,360 +32,320 @@ try:
     from ibapi.client import EClient
     from ibapi.wrapper import EWrapper
     from ibapi.contract import Contract
-    IB_AVAILABLE = True
-except ImportError:
-    IB_AVAILABLE = False
-    logger.warning("IB API not available. Install ibapi package: pip install ibapi")
+    _IBAPI_AVAILABLE = True
+except Exception:  # pragma: no cover (optional dependency)
+    EClient = object  # type: ignore
+    EWrapper = object  # type: ignore
+    Contract = object  # type: ignore
+    _IBAPI_AVAILABLE = False
 
-class IBApp(EWrapper, EClient):
-    """Interactive Brokers API wrapper."""
-    
-    def __init__(self):
-        if not IB_AVAILABLE:
-            raise ImportError("IB API not available. Install: pip install ibapi")
-        EClient.__init__(self, self)
-        self.connected = False
-        self.historical_data = {}
-        self.realtime_data = {}
-        self.callbacks: Dict[str, List[Callable]] = {}
-        self.ticker_data: Dict[str, Dict] = {}
-        
-    def error(self, reqId, errorCode, errorString, *args):
-        """Handle IB API errors."""
-        # Filter out irrelevant warnings
-        if errorCode == 2176 and 'fractional share' in errorString.lower():
+
+class IBIntegrationError(ServiceError):
+    """Raised when the Interactive Brokers integration fails."""
+
+    def __init__(self, message: str):
+        super().__init__(message, service_name="IB_CLIENT_SERVICE")
+        self.error_code = "IB_INTEGRATION_ERROR"
+
+
+@dataclass(frozen=True)
+class IBConnectionInfo:
+    available: bool
+    connected: bool
+    streaming: bool
+    tickers: List[str]
+
+
+class _IBApi(EWrapper, EClient):  # type: ignore[misc]
+    """
+    Internal IB API wrapper.
+    Forwards connection state + realtime bars back to IBClientService.
+    """
+
+    def __init__(self, owner: "IBClientService"):
+        EClient.__init__(self, self)  # type: ignore[misc]
+        self._owner = owner
+
+    # --- Connection lifecycle ---
+    def nextValidId(self, orderId: int):
+        # This is a reliable "we're connected and API is ready" signal.
+        self._owner._on_connected()
+
+    def connectionClosed(self):
+        self._owner._on_disconnected("connectionClosed")
+
+    def error(self, reqId, errorCode, errorString, advancedOrderRejectJson=""):
+        # Suppress common "informational" messages
+        if errorCode in (2104, 2106, 2158, 2176):
             return
-        if errorCode in [2104, 2106]:  # Market data farm connection messages
+        if errorCode == 10167:
+            # Delayed market data (no subscription)
+            logger.warning("IB delayed market data: %s", errorString)
             return
-        
-        logger.debug(f"IB Error {reqId} {errorCode}: {errorString}")
-        
-        if errorCode >= 2000:  # Serious errors
-            logger.error(f"IB Serious Error {errorCode}: {errorString}")
-    
-    def nextValidId(self, orderId):
-        """Connection established."""
-        self.connected = True
-        logger.info("Connected to Interactive Brokers")
-    
-    def historicalData(self, reqId, bar):
-        """Receive historical data."""
-        if reqId not in self.historical_data:
-            self.historical_data[reqId] = []
-        self.historical_data[reqId].append({
-            'date': bar.date,
-            'open': bar.open,
-            'high': bar.high,
-            'low': bar.low,
-            'close': bar.close,
-            'volume': bar.volume
-        })
-    
-    def historicalDataEnd(self, reqId, start, end):
-        """Historical data request completed."""
-        logger.debug(f"Historical data received for reqId {reqId}")
-    
-    def tickPrice(self, reqId, tickType, price, attrib):
-        """Receive real-time price tick."""
-        if reqId in self.ticker_data:
-            ticker_data = self.ticker_data[reqId]
-            if tickType == 1:  # Bid price
-                ticker_data['bid'] = price
-            elif tickType == 2:  # Ask price
-                ticker_data['ask'] = price
-            elif tickType == 4:  # Last price
-                ticker_data['last'] = price
-            
-            # Trigger callbacks
-            if reqId in self.callbacks:
-                for callback in self.callbacks[reqId]:
-                    try:
-                        callback(ticker_data)
-                    except Exception as e:
-                        logger.error(f"Error in callback: {e}")
-    
-    def tickSize(self, reqId, tickType, size):
-        """Receive real-time size tick."""
-        if reqId in self.ticker_data:
-            ticker_data = self.ticker_data[reqId]
-            if tickType == 0:  # Bid size
-                ticker_data['bid_size'] = size
-            elif tickType == 3:  # Ask size
-                ticker_data['ask_size'] = size
-            elif tickType == 5:  # Last size
-                ticker_data['last_size'] = size
-                ticker_data['volume'] = size
-                ticker_data['timestamp'] = datetime.now()
-                
-                # Trigger callbacks for volume updates
-                if reqId in self.callbacks:
-                    for callback in self.callbacks[reqId]:
-                        try:
-                            callback(ticker_data)
-                        except Exception as e:
-                            logger.error(f"Error in callback: {e}")
+        logger.warning("IB error reqId=%s code=%s msg=%s", reqId, errorCode, errorString)
+        self._owner._on_error(reqId, int(errorCode), str(errorString))
+
+    # --- Real-time bars ---
+    def realtimeBar(self, reqId, time_, open_, high, low, close, volume, wap, count):
+        # `time_` is epoch seconds (UTC).
+        self._owner._on_realtime_bar(
+            req_id=int(reqId),
+            epoch_seconds=int(time_),
+            open_=float(open_),
+            high=float(high),
+            low=float(low),
+            close=float(close),
+            volume=int(volume),
+            count=int(count),
+        )
+
 
 class IBClientService:
-    """Service for managing IB API connections and data streaming."""
-    
-    def __init__(self, host: str = "127.0.0.1", port: int = 7497, client_id: int = 1):
-        """
-        Initialize IB Client Service.
-        
-        Args:
-            host: IB Gateway/TWS host
-            port: Port (7497 for paper trading, 7496 for live)
-            client_id: Unique client ID
-        """
-        if not IB_AVAILABLE:
-            logger.warning("IB API not available. Service will not function.")
-            self.available = False
-            return
-        
-        self.available = True
+    """
+    Service wrapper around IB Gateway / TWS.
+
+    Usage:
+      svc = IBClientService(host, port, client_id, on_bar=controller.process_tick)
+      svc.connect()
+      svc.start_realtime_bars("NVDA")
+    """
+
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 7497,
+        client_id: int = 1,
+        on_bar: Optional[Callable[[TickerDTO], None]] = None,
+    ):
         self.host = host
-        self.port = port
-        self.client_id = client_id
-        self.ib_app: Optional[IBApp] = None
-        self.connection_thread: Optional[threading.Thread] = None
-        self.connected = False
-        self.subscribed_symbols: Dict[str, int] = {}  # symbol -> reqId
-        self.req_id_counter = 1
-        self.data_callbacks: Dict[str, Callable] = {}  # symbol -> callback
-    
-    def connect(self) -> bool:
-        """Connect to IB Gateway/TWS."""
-        if not self.available:
-            logger.error("IB API not available")
-            return False
-        
-        try:
-            logger.info(f"Connecting to IB at {self.host}:{self.port}...")
-            
-            self.ib_app = IBApp()
-            
-            # Start connection in separate thread
-            def connect_thread():
-                try:
-                    self.ib_app.connect(self.host, self.port, self.client_id)
-                    self.ib_app.run()
-                except Exception as e:
-                    logger.error(f"IB connection error: {e}")
-                    self.connected = False
-            
-            self.connection_thread = threading.Thread(target=connect_thread, daemon=True)
-            self.connection_thread.start()
-            
-            # Wait for connection
-            for _ in range(50):
-                if self.ib_app and self.ib_app.connected:
-                    self.connected = True
-                    logger.info("Successfully connected to IB")
-                    return True
-                time.sleep(0.1)
-            
-            logger.error("Failed to connect to IB (timeout)")
-            return False
-            
-        except Exception as e:
-            logger.error(f"Error connecting to IB: {e}")
-            return False
-    
-    def disconnect(self):
-        """Disconnect from IB Gateway."""
-        if self.ib_app:
-            try:
-                self.ib_app.disconnect()
-                self.connected = False
-                self.subscribed_symbols.clear()
-                logger.info("Disconnected from IB")
-            except Exception as e:
-                logger.error(f"Error disconnecting: {e}")
-    
-    def create_equity_contract(self, symbol: str) -> Optional[Contract]:
-        """Create equity contract for symbol."""
-        if not IB_AVAILABLE:
-            return None
-        
-        contract = Contract()
-        contract.symbol = symbol.upper()
-        contract.secType = "STK"
-        contract.exchange = "SMART"
-        contract.currency = "USD"
-        return contract
-    
-    def subscribe_realtime(self, symbol: str, callback: Callable) -> bool:
-        """
-        Subscribe to real-time market data for a symbol.
-        
-        Args:
-            symbol: Stock ticker (e.g., 'NVDA')
-            callback: Function to call with tick data: callback(ticker_dto)
-        """
-        if not self.connected or not self.ib_app:
-            logger.error("Not connected to IB")
-            return False
-        
-        try:
-            symbol_upper = symbol.upper()
-            
-            # Check if already subscribed
-            if symbol_upper in self.subscribed_symbols:
-                logger.warning(f"{symbol_upper} already subscribed")
-                return True
-            
-            contract = self.create_equity_contract(symbol_upper)
-            req_id = self.req_id_counter
-            self.req_id_counter += 1
-            
-            # Store subscription
-            self.subscribed_symbols[symbol_upper] = req_id
-            self.data_callbacks[symbol_upper] = callback
-            
-            # Initialize ticker data
-            self.ib_app.ticker_data[req_id] = {
-                'symbol': symbol_upper,
-                'bid': None,
-                'ask': None,
-                'last': None,
-                'volume': None,
-                'timestamp': None
-            }
-            
-            # Set up callback
-            def data_callback(ticker_data):
-                # Convert to TickerDTO when we have enough data
-                if ticker_data.get('last') is not None and ticker_data.get('volume') is not None:
-                    # Create TickerDTO (using last price for all OHLC if not available)
-                    price = ticker_data['last']
-                    ticker_dto = TickerDTO(
-                        event_type="TICK",
-                        timestamp=ticker_data.get('timestamp', datetime.now()),
-                        ticker=symbol_upper,
-                        open=price,
-                        high=price,
-                        low=price,
-                        close=price,
-                        volume=int(ticker_data.get('volume', 0))
-                    )
-                    callback(ticker_dto)
-            
-            if req_id not in self.ib_app.callbacks:
-                self.ib_app.callbacks[req_id] = []
-            self.ib_app.callbacks[req_id].append(data_callback)
-            
-            # Request market data
-            self.ib_app.reqMktData(req_id, contract, "", False, False, [])
-            
-            logger.info(f"Subscribed to real-time data for {symbol_upper}")
+        self.port = int(port)
+        self.client_id = int(client_id)
+        self._on_bar_callback = on_bar
+
+        self._available = _IBAPI_AVAILABLE
+        self._api: Optional[_IBApi] = _IBApi(self) if self._available else None
+
+        self._thread: Optional[threading.Thread] = None
+        self._connected_event = threading.Event()
+        self._disconnect_event = threading.Event()
+
+        self._lock = threading.Lock()
+        self._next_req_id = 1
+        self._req_to_ticker: Dict[int, str] = {}
+        self._streaming_reqs: Set[int] = set()
+        self._last_error: Optional[str] = None
+
+    # --- Properties / status ---
+    @property
+    def available(self) -> bool:
+        return bool(self._available)
+
+    @property
+    def connected(self) -> bool:
+        return self._connected_event.is_set() and not self._disconnect_event.is_set()
+
+    @property
+    def streaming(self) -> bool:
+        with self._lock:
+            return len(self._streaming_reqs) > 0
+
+    def get_connection_info(self) -> IBConnectionInfo:
+        with self._lock:
+            tickers = sorted({self._req_to_ticker[r] for r in self._streaming_reqs if r in self._req_to_ticker})
+        return IBConnectionInfo(
+            available=self.available,
+            connected=self.connected,
+            streaming=self.streaming,
+            tickers=tickers,
+        )
+
+    # --- Public API ---
+    def set_on_bar_callback(self, cb: Optional[Callable[[TickerDTO], None]]) -> None:
+        self._on_bar_callback = cb
+
+    def connect(self, timeout_seconds: float = 5.0) -> bool:
+        if not self.available or self._api is None:
+            raise IBIntegrationError("ibapi is not installed. Install 'ibapi' to enable IB integration.")
+
+        if self.connected:
             return True
-            
-        except Exception as e:
-            logger.error(f"Error subscribing to {symbol}: {e}")
-            return False
-    
-    def unsubscribe_realtime(self, symbol: str):
-        """Unsubscribe from real-time market data."""
-        if not self.connected or not self.ib_app:
-            return
-        
-        symbol_upper = symbol.upper()
-        if symbol_upper in self.subscribed_symbols:
-            req_id = self.subscribed_symbols[symbol_upper]
-            self.ib_app.cancelMktData(req_id)
-            del self.subscribed_symbols[symbol_upper]
-            if symbol_upper in self.data_callbacks:
-                del self.data_callbacks[symbol_upper]
-            logger.info(f"Unsubscribed from {symbol_upper}")
-    
-    def get_historical_data(
-        self, 
-        symbol: str, 
-        duration: str = "1 Y",
-        bar_size: str = "1 day"
-    ) -> Optional[pd.DataFrame]:
-        """
-        Request historical data from IB.
-        
-        Args:
-            symbol: Stock ticker
-            duration: Duration string (e.g., "1 Y", "6 M")
-            bar_size: Bar size (e.g., "1 day", "1 min")
-            
-        Returns:
-            DataFrame with historical data or None
-        """
-        if not self.connected or not self.ib_app:
-            logger.error("Not connected to IB")
-            return None
-        
+
+        self._connected_event.clear()
+        self._disconnect_event.clear()
+        self._last_error = None
+
+        logger.info("Connecting to IB host=%s port=%s clientId=%s", self.host, self.port, self.client_id)
+
         try:
-            import pandas as pd
-            
-            contract = self.create_equity_contract(symbol)
-            req_id = self.req_id_counter
-            self.req_id_counter += 1
-            
-            # Clear previous data
-            if req_id in self.ib_app.historical_data:
-                del self.ib_app.historical_data[req_id]
-            
-            # Request data
-            self.ib_app.reqHistoricalData(
-                reqId=req_id,
-                contract=contract,
-                endDateTime="",
-                durationStr=duration,
-                barSizeSetting=bar_size,
-                whatToShow="TRADES",
-                useRTH=1,
-                formatDate=1,
-                keepUpToDate=False,
-                chartOptions=[]
-            )
-            
-            # Wait for data
-            timeout = 15
-            start_time = time.time()
-            while req_id not in self.ib_app.historical_data and (time.time() - start_time) < timeout:
-                time.sleep(0.1)
-            
-            if req_id in self.ib_app.historical_data:
-                data = self.ib_app.historical_data[req_id]
-                if len(data) > 0:
-                    df = pd.DataFrame(data)
-                    df['date'] = pd.to_datetime(df['date'])
-                    df = df.rename(columns={
-                        'date': 'timestamp',
-                        'open': 'open',
-                        'high': 'high',
-                        'low': 'low',
-                        'close': 'close',
-                        'volume': 'volume'
-                    })
-                    logger.info(f"Retrieved {len(df)} historical bars for {symbol}")
-                    return df
-            
-            logger.warning(f"No historical data received for {symbol}")
-            return None
-            
+            self._api.connect(self.host, self.port, clientId=self.client_id)  # type: ignore[union-attr]
         except Exception as e:
-            logger.error(f"Error getting historical data for {symbol}: {e}")
-            return None
-    
-    def is_market_open(self) -> bool:
-        """Check if market is currently open (simplified: 9:30-16:00 ET on weekdays)."""
-        now = datetime.now()
-        
-        # Check if weekday
-        if now.weekday() >= 5:  # Saturday/Sunday
-            return False
-        
-        # Check time (simplified - doesn't account for timezone)
-        hour = now.hour
-        return 9 <= hour < 16
-    
-    def is_connected(self) -> bool:
-        """Check if connected to IB."""
-        return self.connected and self.ib_app and self.ib_app.connected
+            raise IBIntegrationError(f"Failed to connect to IB: {e}")
+
+        # Start network loop in background thread
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+
+        ok = self._connected_event.wait(timeout=timeout_seconds)
+        if not ok:
+            msg = self._last_error or "Timed out waiting for IB connection (nextValidId)."
+            raise IBIntegrationError(msg)
+
+        logger.info("Connected to IB.")
+        return True
+
+    def disconnect(self) -> None:
+        if not self.available or self._api is None:
+            return
+
+        logger.info("Disconnecting from IB...")
+
+        # Stop streams first
+        try:
+            self.stop_all_streams()
+        except Exception:
+            pass
+
+        try:
+            self._api.disconnect()  # type: ignore[union-attr]
+        except Exception:
+            pass
+
+        self._disconnect_event.set()
+        logger.info("Disconnected from IB.")
+
+    def start_realtime_bars(
+        self,
+        ticker: str,
+        exchange: str = "SMART",
+        currency: str = "USD",
+        sec_type: str = "STK",
+        what_to_show: str = "TRADES",
+        use_rth: bool = True,
+    ) -> int:
+        """
+        Subscribe to IB real-time bars (5-second OHLCV).
+
+        Returns:
+            reqId used by IB.
+        """
+        if not self.connected:
+            raise IBIntegrationError("Not connected to IB.")
+
+        t = (ticker or "").strip().upper()
+        if not t:
+            raise IBIntegrationError("Ticker is required to start streaming.")
+
+        contract = self._create_stock_contract(t, exchange=exchange, currency=currency, sec_type=sec_type)
+
+        with self._lock:
+            req_id = self._next_req_id
+            self._next_req_id += 1
+            self._req_to_ticker[req_id] = t
+            self._streaming_reqs.add(req_id)
+
+        logger.info("Starting real-time bars for %s (reqId=%s)", t, req_id)
+        try:
+            # IB only supports 5-second real-time bars.
+            self._api.reqRealTimeBars(req_id, contract, 5, what_to_show, use_rth, [])  # type: ignore[union-attr]
+        except Exception as e:
+            with self._lock:
+                self._streaming_reqs.discard(req_id)
+                self._req_to_ticker.pop(req_id, None)
+            raise IBIntegrationError(f"Failed to start real-time bars for {t}: {e}")
+
+        return req_id
+
+    def stop_realtime_bars(self, req_id: int) -> None:
+        if not self.available or self._api is None:
+            return
+
+        with self._lock:
+            if req_id not in self._streaming_reqs:
+                return
+            ticker = self._req_to_ticker.get(req_id, "UNKNOWN")
+
+        logger.info("Stopping real-time bars for %s (reqId=%s)", ticker, req_id)
+        try:
+            self._api.cancelRealTimeBars(int(req_id))  # type: ignore[union-attr]
+        finally:
+            with self._lock:
+                self._streaming_reqs.discard(req_id)
+                self._req_to_ticker.pop(req_id, None)
+
+    def stop_all_streams(self) -> None:
+        with self._lock:
+            reqs = list(self._streaming_reqs)
+        for req_id in reqs:
+            self.stop_realtime_bars(req_id)
+
+    # --- Internal helpers ---
+    def _run_loop(self) -> None:
+        try:
+            self._api.run()  # type: ignore[union-attr]
+        except Exception as e:
+            self._on_disconnected(f"IB run loop crashed: {e}")
+
+    def _create_stock_contract(self, symbol: str, exchange: str, currency: str, sec_type: str) -> "Contract":
+        c = Contract()  # type: ignore[call-arg]
+        c.symbol = symbol
+        c.secType = sec_type
+        c.exchange = exchange
+        c.currency = currency
+        return c
+
+    # --- Callbacks from _IBApi ---
+    def _on_connected(self) -> None:
+        self._connected_event.set()
+        self._disconnect_event.clear()
+
+    def _on_disconnected(self, reason: str) -> None:
+        if not self._disconnect_event.is_set():
+            logger.warning("IB disconnected: %s", reason)
+        self._disconnect_event.set()
+        self._connected_event.clear()
+
+    def _on_error(self, req_id: int, error_code: int, message: str) -> None:
+        # Capture first error to show in connect timeout failures.
+        if not self._connected_event.is_set():
+            self._last_error = f"IB error {error_code}: {message}"
+
+    def _on_realtime_bar(
+        self,
+        req_id: int,
+        epoch_seconds: int,
+        open_: float,
+        high: float,
+        low: float,
+        close: float,
+        volume: int,
+        count: int,
+    ) -> None:
+        with self._lock:
+            ticker = self._req_to_ticker.get(req_id)
+
+        if not ticker:
+            return
+
+        # Convert epoch seconds to naive datetime in local time (consistent with rest of app)
+        ts = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).astimezone().replace(tzinfo=None)
+
+        # Emit as the project's standard DTO
+        dto = TickerDTO(
+            event_type="IB_REALTIME_BAR",
+            timestamp=ts,
+            ticker=ticker,
+            open=open_,
+            high=high,
+            low=low,
+            close=close,
+            volume=max(0, int(volume)),
+        )
+
+        if self._on_bar_callback:
+            try:
+                self._on_bar_callback(dto)
+            except Exception as e:
+                # Don't crash IB thread; log and continue.
+                logger.exception("Error in on_bar callback for %s: %s", ticker, e)
+
 

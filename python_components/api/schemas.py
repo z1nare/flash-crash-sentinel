@@ -91,6 +91,7 @@ class StatusResponse(BaseModel):
     services_ready: bool
     latest_metrics: Dict[str, Dict[str, Any]]
     vpin_states: Dict[str, Dict[str, Any]]
+    ib_connection: Optional[Dict[str, Any]] = None
 
 class PlotGenerateRequest(BaseModel):
     """Request schema for /api/plots/generate endpoint"""
