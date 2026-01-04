@@ -8,6 +8,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python_components
     env:
       # Prevent heavy model downloads/initialization in CI
       RISKBEACON_DISABLE_FINBERT: "true"
@@ -43,13 +46,13 @@ jobs:
         with:
           name: coverage
           path: |
-            coverage.xml
-            htmlcov/
+            python_components/coverage.xml
+            python_components/htmlcov/
 
       - name: Upload GX suite artifacts
         uses: actions/upload-artifact@v4
         with:
           name: gx-suites
           path: |
-            docs/data_validation/gx_suites/
+            python_components/docs/data_validation/gx_suites/
 
