@@ -69,12 +69,23 @@ def _build_validator_from_df(df: pd.DataFrame, asset_name: str, suite_name: str)
         batch_identifiers={"default_identifier_name": "default"},
     )
 
+    # Great Expectations API varies across versions. We want a validator bound to `suite_name`.
+    # Some versions expose `add_or_update_expectation_suite`, others use `add_expectation_suite`,
+    # and some support `create_expectation_suite=True` on `get_validator`.
     try:
-        context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
+        if hasattr(context, "add_or_update_expectation_suite"):
+            context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
+        elif hasattr(context, "add_expectation_suite"):
+            context.add_expectation_suite(expectation_suite_name=suite_name)
     except Exception:
+        # If suite creation fails, we rely on get_validator's create_expectation_suite if available.
         pass
 
-    return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+    try:
+        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name, create_expectation_suite=True)
+    except TypeError:
+        # Older/newer GE versions may not accept create_expectation_suite kwarg.
+        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
 
 
 def _synthetic_market_df(rows: int = 200) -> pd.DataFrame:
