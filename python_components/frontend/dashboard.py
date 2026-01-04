@@ -11,6 +11,9 @@ from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
 import re
+from utils.logger import get_dashboard_logger
+
+logger = get_dashboard_logger()
 
 # Import custom modules
 import sys
@@ -34,7 +37,7 @@ try:
     REPLAY_AVAILABLE = True
 except ImportError:
     REPLAY_AVAILABLE = False
-    print("Data replay service not available (Excel files may not be accessible)")
+    logger.info("Data replay service not available (Excel files may not be accessible)")
 
 # Page configuration
 st.set_page_config(

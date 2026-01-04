@@ -2,6 +2,12 @@ import numpy as np
 import pandas as pd
 from backend.models.domain import TickerDTO
 import os
+from datetime import datetime, date
+from typing import Optional, Dict
+
+from utils.logger import get_service_logger
+
+logger = get_service_logger("vol")
 
 class VolatilityService:
     def __init__(self, csv_path: str = None):
@@ -18,125 +24,77 @@ class VolatilityService:
         # Portable fallback (used only if caller didn't inject a path).
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.CSV_PATH = os.path.join(base_dir, "dataInCsv", "data.csv")
+
+        # Rolling daily-candle cache for fast per-tick volatility.
+        # We maintain:
+        # - the current (in-progress) daily candle for "today"
+        # - a DataFrame of completed daily candles (last ~21)
+        self._current_day: Optional[date] = None
+        self._current_day_ohlc: Optional[Dict[str, float]] = None
+        self._daily_df: Optional[pd.DataFrame] = None
         
     def process_tick(self, ticker_dto: TickerDTO) -> float:
         """
-        Process a new tick: load relevant history from CSV and calculate volatility.
-        Returns: Calculated Volatility (float)
+        Process a new tick and calculate volatility using a rolling daily window.
+
+        Performance goal: avoid re-reading and resampling the full CSV on every tick.
+        We update a rolling 21-day daily OHLC cache in memory and compute Yang-Zhang on it.
+
+        Returns:
+            Calculated Volatility (float) in *daily* units (not annualized).
         """
-        print(f"[VOL] Processing tick for {ticker_dto.ticker}")
-        
-        if not os.path.exists(self.CSV_PATH):
-            return 0.0
-
         try:
-            # 1. Load History efficiently with robust error handling
-            try:
-                df = pd.read_csv(self.CSV_PATH, low_memory=False, on_bad_lines='skip')
-            except TypeError:
-                # Older pandas versions - use error_bad_lines instead
-                try:
-                    df = pd.read_csv(self.CSV_PATH, low_memory=False, error_bad_lines=False, warn_bad_lines=True)
-                except TypeError:
-                    # Even older versions
-                    df = pd.read_csv(self.CSV_PATH, low_memory=False, error_bad_lines=False)
-            
-            # Filter for rows that have OHLC data (not metrics-only rows)
-            # Check if required columns exist
-            required_ohlc_cols = ['open', 'high', 'low', 'close']
-            if not all(col in df.columns for col in required_ohlc_cols):
-                print(f"[VOL] Warning: Missing OHLC columns in CSV. Returning 0.0")
+            ts = ticker_dto.timestamp
+            if isinstance(ts, str):
+                ts = pd.to_datetime(ts, errors="coerce")
+            if ts is None or pd.isna(ts):
                 return 0.0
-            
-            # Filter out rows where OHLC data is missing or invalid
-            df = df.dropna(subset=required_ohlc_cols, how='any')
-            
-            if df.empty:
-                return 0.0
-            
-            # Safe timestamp parsing - only parse valid timestamps
-            def safe_parse_timestamp(ts):
-                """Safely parse timestamp, return None if invalid"""
-                if pd.isna(ts):
-                    return None
-                try:
-                    if isinstance(ts, str):
-                        parsed = pd.to_datetime(ts, errors='coerce')
-                        if pd.isna(parsed):
-                            return None
-                        # Normalize to timezone-naive for consistency
-                        if hasattr(parsed, 'tz') and parsed.tz is not None:
-                            parsed = parsed.tz_convert(None)
-                        return parsed
-                    elif isinstance(ts, (int, float)):
-                        # Skip numeric values that aren't timestamps
-                        return None
-                    else:
-                        parsed = pd.to_datetime(ts, errors='coerce')
-                        if pd.isna(parsed):
-                            return None
-                        # Normalize to timezone-naive
-                        if hasattr(parsed, 'tz') and parsed.tz is not None:
-                            parsed = parsed.tz_convert(None)
-                        return parsed
-                except Exception:
-                    return None
-            
-            # Apply safe timestamp parsing
-            df['timestamp'] = df['timestamp'].apply(safe_parse_timestamp)
-            
-            # Remove rows with invalid timestamps
-            df = df.dropna(subset=['timestamp'])
-            
-            if df.empty:
-                return 0.0
-            
-            # Filter for specific ticker
-            if 'ticker' not in df.columns:
-                return 0.0
-                
-            df_ticker = df[df['ticker'] == ticker_dto.ticker].copy()
-            
-            if df_ticker.empty:
+            if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
+                ts = ts.replace(tzinfo=None)
+            tick_day: date = ts.date() if isinstance(ts, datetime) else pd.to_datetime(ts).date()
+
+            o = float(ticker_dto.open)
+            h = float(ticker_dto.high)
+            l = float(ticker_dto.low)
+            c = float(ticker_dto.close)
+
+            # Initialize cache on first tick
+            if self._daily_df is None:
+                self._daily_df = pd.DataFrame(columns=["open", "high", "low", "close"])
+
+            # Day rollover: commit previous day's candle
+            if self._current_day is None:
+                self._current_day = tick_day
+                self._current_day_ohlc = {"open": o, "high": h, "low": l, "close": c}
+            elif tick_day != self._current_day:
+                if self._current_day_ohlc is not None:
+                    self._daily_df.loc[pd.Timestamp(self._current_day)] = self._current_day_ohlc
+                    # Keep only last 21 completed daily candles
+                    if len(self._daily_df) > 21:
+                        self._daily_df = self._daily_df.iloc[-21:].copy()
+                # Start new day candle
+                self._current_day = tick_day
+                self._current_day_ohlc = {"open": o, "high": h, "low": l, "close": c}
+            else:
+                # Same day: update candle
+                if self._current_day_ohlc is None:
+                    self._current_day_ohlc = {"open": o, "high": h, "low": l, "close": c}
+                else:
+                    self._current_day_ohlc["high"] = max(self._current_day_ohlc["high"], h)
+                    self._current_day_ohlc["low"] = min(self._current_day_ohlc["low"], l)
+                    self._current_day_ohlc["close"] = c
+
+            # Volatility is computed on *completed* daily candles.
+            if self._daily_df is None or len(self._daily_df) < 2:
                 return 0.0
 
-            # Ensure OHLC columns are numeric
-            for col in required_ohlc_cols:
-                df_ticker[col] = pd.to_numeric(df_ticker[col], errors='coerce')
-            
-            # Remove any rows with invalid numeric data
-            df_ticker = df_ticker.dropna(subset=required_ohlc_cols)
-            
-            if df_ticker.empty:
-                return 0.0
-
-            # 2. Resample to Daily Candles
-            df_ticker.set_index('timestamp', inplace=True)
-            df_ticker = df_ticker.sort_index()
-            
-            daily_df = df_ticker.resample('D').agg({
-                'open': 'first',
-                'high': 'max',
-                'low': 'min',
-                'close': 'last'
-            }).dropna()
-
-            # Keep only last 21 days window
-            if len(daily_df) > 21:
-                daily_df = daily_df.iloc[-21:]
-            
-            if len(daily_df) < 2:
-                print(f"[VOL] Insufficient data: only {len(daily_df)} day(s) available, need at least 2 days for volatility calculation")
-                return 0.0
-
-            # 3. Calculate Volatility using all available days (up to 21)
+            daily_df = self._daily_df.sort_index()
             vol = self._calculate_yang_zhang(daily_df)
-            
-            print(f"[VOL] Calculated Volatility for {ticker_dto.ticker}: {vol:.6f} (using {len(daily_df)} days)")
-            return vol
-            
+            if not np.isfinite(vol):
+                return 0.0
+            return float(vol)
         except Exception as e:
-            print(f"[VOL] Error calculating volatility: {str(e)}")
+            logger.warning("Error calculating volatility for %s: %s", getattr(ticker_dto, "ticker", "?"), e)
             return 0.0
 
     def _calculate_yang_zhang(self, history_df: pd.DataFrame) -> float:        

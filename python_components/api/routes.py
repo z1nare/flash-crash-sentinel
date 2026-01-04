@@ -10,6 +10,9 @@ import os
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from controllers.ServiceController import ServiceController
+from utils.logger import get_api_logger
+
+logger = get_api_logger()
 from backend.models.domain import TickerDTO, NewsDTO
 from services.plotService import generate_all_plots, DEFAULT_OUTPUT_DIR
 from api.schemas import (
@@ -75,73 +78,32 @@ async def process_tick(
             volume=int(request.volume)
         )
         
-        # Process through controller
-        controller.process_tick(ticker_dto)
-        
-        # Check if metrics were generated (VPIN bucket filled)
-        vpin_score = None
-        vol_score = None
-        ticker_upper = ticker_dto.ticker.upper()
-        
-        try:
-            # Get VPIN score from state
-            if hasattr(controller.vpin_service, 'state') and ticker_upper in controller.vpin_service.state:
-                state = controller.vpin_service.state[ticker_upper]
-                vpin_score = state.last_vpin if hasattr(state, 'last_vpin') and state.last_vpin > 0 else None
-            
-            # Try to get volatility and regime from the CSV (if it was just calculated)
-            # Read the last row from the ticker's CSV to get volatility and regime
-            csv_path = controller.get_ticker_csv_path(ticker_upper)
-            regime_state, regime_label, regime_confidence = None, None, None
-            
-            if os.path.exists(csv_path):
-                try:
-                    # Read CSV with error handling for malformed rows
-                    try:
-                        df = pd.read_csv(csv_path, low_memory=False, on_bad_lines='skip')
-                    except TypeError:
-                        try:
-                            df = pd.read_csv(csv_path, low_memory=False, error_bad_lines=False, warn_bad_lines=True)
-                        except TypeError:
-                            df = pd.read_csv(csv_path, low_memory=False, error_bad_lines=False)
-                    if not df.empty:
-                        # Get the last row's values (most recently calculated)
-                        if 'vol' in df.columns:
-                            last_vol = df['vol'].iloc[-1]
-                            if pd.notna(last_vol) and float(last_vol) > 0:
-                                vol_score = float(last_vol)
-                        
-                        # Get regime information if available
-                        if 'regime' in df.columns:
-                            last_regime = df['regime'].iloc[-1]
-                            if pd.notna(last_regime):
-                                regime_state = int(last_regime)
-                        # Get regime label from regime service
-                        regime_service = controller.get_regime_service(ticker_upper)
-                        if regime_service:
-                            regime_label = regime_service.get_regime_label(regime_state)
-                        else:
-                            # Fallback to basic labels
-                            regime_labels = {0: "Low Vol / Normal", 1: "High Vol / Correction", 2: "Crash / Liquidity Crisis"}
-                            regime_label = regime_labels.get(regime_state, f"Unknown ({regime_state})")
-                        
-                        if 'regime_confidence' in df.columns:
-                            last_confidence = df['regime_confidence'].iloc[-1]
-                            if pd.notna(last_confidence):
-                                regime_confidence = float(last_confidence)
-                except Exception as e:
-                    print(f"[API] Error reading CSV for regime: {e}")
-                    pass
-        except Exception:
-            # If state access fails, continue without scores
-            pass
+        # Process through controller (returns computed metrics when available)
+        metrics = controller.process_tick(ticker_dto)
+
+        vpin_score = metrics.get("vpin")
+        vol_score = metrics.get("volatility")
+        regime_state = metrics.get("regime")
+        regime_confidence = metrics.get("regime_confidence")
+
+        regime_label = None
+        if regime_state is not None:
+            try:
+                regime_service = controller.get_regime_service(ticker_dto.ticker.upper())
+                if regime_service:
+                    regime_label = regime_service.get_regime_label(int(regime_state))
+                else:
+                    regime_labels = {0: "Low Vol / Normal", 1: "High Vol / Correction", 2: "Crash / Liquidity Crisis"}
+                    regime_label = regime_labels.get(int(regime_state), f"Unknown ({regime_state})")
+            except Exception:
+                regime_label = None
         
         return TickResponse(
             success=True,
             message=f"Tick processed for {ticker_dto.ticker}",
-            vpin_calculated=vpin_score is not None and vpin_score > 0,
+            vpin_calculated=vpin_score is not None and float(vpin_score) > 0,
             vpin_score=float(vpin_score) if vpin_score is not None else 0.0,
-            volatility_calculated=vol_score is not None and vol_score > 0,
+            volatility_calculated=vol_score is not None and float(vol_score) > 0,
             volatility_score=float(vol_score) if vol_score is not None else 0.0,
             regime=regime_state,
             regime_label=regime_label,
@@ -184,7 +146,7 @@ async def process_news(
         )
         
         # Process through controller (this returns the sentiment DTO)
-        sentiment_dto = controller.sentiment_service.process_news(news_dto)
+        sentiment_dto = controller.get_sentiment_service().process_news(news_dto)
         
         # Persist the sentiment result
         controller._persist_article_sentiment(news_dto, sentiment_dto)
@@ -235,7 +197,7 @@ async def analyze_sentiment(
         )
         
         # Process sentiment using the sentiment service
-        sentiment_dto = controller.sentiment_service.process_news(temp_news_dto)
+        sentiment_dto = controller.get_sentiment_service().process_news(temp_news_dto)
         
         return SentimentAnalyzeResponse(
             success=True,

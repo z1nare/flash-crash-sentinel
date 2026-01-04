@@ -4,6 +4,9 @@ from plotly.subplots import make_subplots
 import os
 import numpy as np
 from services.vol_service import VolatilityService # Import Logic
+from utils.logger import get_service_logger
+
+logger = get_service_logger("plot")
 
 # --- NORD THEME COLORS ---
 NORD = {
@@ -60,10 +63,10 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
         sentiment_path = DEFAULT_SENTIMENT_PATH
     
     if not os.path.exists(data_path):
-        print(f"Error: Data file not found at {data_path}")
+        logger.warning("Data file not found at %s", data_path)
         return pd.DataFrame(), None
 
-    print(f"Loading market data from {data_path}...")
+    logger.info("Loading market data from %s", data_path)
     df = pd.read_csv(data_path, low_memory=False)
     # Normalize column names (lower/strip) but also handle duplicates that can occur
     # when CSV contains both `VPIN` and `vpin` (or `vol` and `volatility`).
@@ -109,21 +112,21 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
     df = df.dropna(subset=['timestamp'])
     
     if df.empty:
-        print("Error: No valid timestamps found in data.")
+        logger.warning("No valid timestamps found in data.")
         return pd.DataFrame(), None
     
     df = df.sort_values('timestamp')
 
     # Check for required columns
     if 'ticker' not in df.columns:
-        print("Error: 'ticker' column missing.")
+        logger.warning("'ticker' column missing.")
         return pd.DataFrame(), None
     
     # Filter out rows where ticker is NaN or invalid
     df = df[df['ticker'].notna()].copy()
     
     if df.empty:
-        print("Error: No valid ticker data found.")
+        logger.warning("No valid ticker data found.")
         return pd.DataFrame(), None
 
     # Use provided ticker (required now, since files are ticker-specific)
@@ -146,7 +149,7 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
         df = df[df['ticker'].str.upper() == target_ticker].copy() if df['ticker'].dtype == 'object' else df[df['ticker'] == target_ticker].copy()
     
     if df.empty:
-        print(f"Error: No data found for ticker '{target_ticker}'")
+        logger.warning("No data found for ticker '%s'", target_ticker)
         return pd.DataFrame(), None
 
     # Map CSV column names to expected names (vpin/vol -> volatility)
@@ -168,7 +171,7 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
     df = df.dropna(subset=required_ohlc, how='all')
     
     if df.empty:
-        print("Error: No valid OHLC data found after filtering.")
+        logger.warning("No valid OHLC data found after filtering.")
         return pd.DataFrame(), None
 
     # Unify Market Data (forward/backward fill for sparse metrics)
@@ -177,7 +180,7 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
 
     # --- LOAD SENTIMENT ---
     if os.path.exists(sentiment_path):
-        print(f"Loading sentiment data from {sentiment_path}...")
+        logger.info("Loading sentiment data from %s", sentiment_path)
         df_sent = pd.read_csv(sentiment_path, low_memory=False)
         
         # Safe timestamp parsing for sentiment data
@@ -224,17 +227,17 @@ def load_data(data_path: str = None, sentiment_path: str = None, ticker: str = N
             df['sentiment_score'] = df['sentiment_score'].fillna(0)
             df['headline'] = df['headline'].fillna('')
         else:
-            print(f"No sentiment data found for {target_ticker}")
+            logger.info("No sentiment data found for %s", target_ticker)
             df['sentiment_score'] = 0.0
             df['headline'] = ''
     else:
-        print("Sentiment CSV not found.")
+        logger.info("Sentiment CSV not found.")
         df['sentiment_score'] = 0.0
         df['headline'] = ''
 
     # Recalculate volatility if empty or all zeros
     if df['volatility'].sum() == 0 or (df['volatility'].max() == 0 if df['volatility'].notna().any() else True):
-        print("Warning: 'volatility' column is empty. Calculating on-the-fly using VolatilityService...")
+        logger.warning("'volatility' column empty; calculating on-the-fly using VolatilityService...")
         df['volatility'] = VolatilityService.calculate_rolling_volatility(df)
         # Also update vol column for consistency if it exists
         if 'vol' in df.columns:
@@ -259,7 +262,7 @@ def save_plot(fig, filename, output_dir: str = None):
     os.makedirs(output_dir, exist_ok=True)
     path = os.path.join(output_dir, filename)
     fig.write_html(path)
-    print(f"Saved plot to: {path}")
+    logger.info("Saved plot: %s", path)
     return path
 
 def apply_nord_theme(fig, title):
@@ -372,7 +375,7 @@ def plot_sentiment_impact(df, ticker, output_dir: str = None):
             name='News Impact'
         ), secondary_y=False)
     else:
-        print("No significant sentiment events found to plot.")
+        logger.info("No significant sentiment events found to plot.")
 
     apply_nord_theme(fig, f"📰 News Sentiment Impact: {ticker}")
     return save_plot(fig, f"{ticker}_4_sentiment_impact.html", output_dir)
@@ -381,7 +384,7 @@ def plot_sentiment_impact(df, ticker, output_dir: str = None):
 def plot_crash_probability(df, ticker, output_dir: str = None):
     # Safety checks for empty or invalid data
     if df.empty or len(df) == 0:
-        print(f"Warning: Empty dataframe for crash probability plot for {ticker}")
+        logger.warning("Empty dataframe for crash probability plot for %s", ticker)
         return None
     
     # Ensure required columns exist and are numeric
@@ -448,7 +451,7 @@ def generate_all_plots(data_path: str = None, sentiment_path: str = None, ticker
     if df.empty:
         return {}
     
-    print(f"Generating plots for {target_ticker}...")
+    logger.info("Generating plots for %s", target_ticker)
     
     # Update save_plot calls to use output_dir
     plot_paths = {}

@@ -5,13 +5,15 @@ from pathlib import Path
 from backend.models.domain import TickerDTO, NewsDTO
 from services.vpin_service import VpinService
 from services.vol_service import VolatilityService
-from services.sentimentService import SentimentService
 from services.regime_service import RegimeDetectionService
+from utils.logger import get_controller_logger
+
+logger = get_controller_logger()
 
 class ServiceController:
-    def __init__(self):
+    def __init__(self, base_dir: Optional[str] = None):
         # Base directory for historical data
-        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        BASE_DIR = base_dir or os.getenv("RISKBEACON_BASE_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.HISTORICAL_DATA_DIR = os.path.join(BASE_DIR, "historicalData")
         
         # Shared paths (not ticker-specific)
@@ -24,7 +26,8 @@ class ServiceController:
         self.vpin_service = VpinService()
         # VolatilityService will be initialized per-ticker with correct CSV path
         self.vol_services = {}  # Cache of VolatilityService instances per ticker
-        self.sentiment_service = SentimentService()
+        # Sentiment is optional/heavy; instantiate lazily (CI-friendly).
+        self._sentiment_service = None
         
         # Regime detection models directory (from experiments)
         self.EXPERIMENTS_MODELS_DIR = os.path.join(BASE_DIR, "experiments", "regime_detection", "models")
@@ -61,6 +64,13 @@ class ServiceController:
         except Exception as e:
             # IB not available or failed to initialize - continue without it
             pass
+
+    def get_sentiment_service(self):
+        """Lazy-load sentiment service (FinBERT is optional; can be disabled via env var)."""
+        if self._sentiment_service is None:
+            from services.sentimentService import SentimentService
+            self._sentiment_service = SentimentService()
+        return self._sentiment_service
 
     # -----------------------
     # Interactive Brokers API
@@ -170,9 +180,9 @@ class ServiceController:
                         ticker=ticker,
                         experiments_dir=Path(self.EXPERIMENTS_MODELS_DIR).parent / "models"
                     )
-                    print(f"[CONTROLLER] Loaded best regime model for {ticker} from experiments")
+                    logger.info("Loaded best regime model for %s from experiments", ticker)
                 except Exception as e:
-                    print(f"[CONTROLLER] Failed to load experiment model for {ticker}: {e}")
+                    logger.warning("Failed to load experiment model for %s: %s", ticker, e)
                     # Fall through to legacy model
             else:
                 # Try legacy HMM model path for backwards compatibility
@@ -185,16 +195,16 @@ class ServiceController:
                         # Create a wrapper to make it compatible
                         from services.regime_service import SklearnRegimeModel
                         # We'll need to adapt this, but for now just load directly
-                        print(f"[CONTROLLER] ⚠️  Using legacy HMM model for {ticker}. Consider running experiments to get best model.")
+                        logger.warning("Using legacy HMM model for %s. Consider running experiments to get best model.", ticker)
                         # For backwards compatibility, we'll still use the old service
                         # but mark it differently
                         return None  # Will use old method below
                     except Exception as e:
-                        print(f"[CONTROLLER] Failed to load legacy model for {ticker}: {e}")
+                        logger.warning("Failed to load legacy model for %s: %s", ticker, e)
         
         return self.regime_services.get(ticker)
         
-    def process_tick(self, ticker_dto: TickerDTO) -> None:
+    def process_tick(self, ticker_dto: TickerDTO) -> dict:
         """
         Orchestrates the flow:
         1. Receive new OHLC ticker data.
@@ -211,6 +221,14 @@ class ServiceController:
         
         # 2. Calculate VPIN
         vpin_score = self.vpin_service.process_tick(ticker_dto)
+
+        result = {
+            "ticker": ticker,
+            "vpin": float(vpin_score) if vpin_score is not None else None,
+            "volatility": None,
+            "regime": None,
+            "regime_confidence": None,
+        }
         
         # 3. Check if we need to generate metrics
         if vpin_score is not None:
@@ -218,6 +236,7 @@ class ServiceController:
                 # a. Calculate Volatility using ticker-specific service
                 vol_service = self.get_volatility_service(ticker)
                 vol_score = vol_service.process_tick(ticker_dto)
+                result["volatility"] = float(vol_score) if vol_score is not None else None
                 
                 # b. Predict regime (model / legacy_hmm / rule)
                 regime_state, regime_confidence = None, None
@@ -242,7 +261,7 @@ class ServiceController:
                     if regime_mode == "rule":
                         regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
                         from services.regime_service import REGIME_LABELS
-                        print(f"[CONTROLLER] Regime (rule): {regime_state} ({REGIME_LABELS.get(regime_state)}), Confidence: {regime_confidence:.2%}")
+                        logger.info("Regime (rule): %s (%s), confidence=%.2f", regime_state, REGIME_LABELS.get(regime_state), regime_confidence)
                     elif regime_mode in ("legacy_hmm", "hmm"):
                         legacy_model_path = os.path.join(self.LEGACY_MODELS_DIR, f"{ticker}_hmm.pkl")
                         if os.path.exists(legacy_model_path):
@@ -251,9 +270,9 @@ class ServiceController:
                                 legacy_hmm = HMMRegimeService(model_path=legacy_model_path)
                                 regime_state, regime_confidence = legacy_hmm.predict_regime(vpin_score, vol_score)
                                 regime_label = legacy_hmm.get_regime_label(regime_state)
-                                print(f"[CONTROLLER] Regime (legacy HMM): {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
+                                logger.info("Regime (legacy HMM): %s (%s), confidence=%.2f", regime_state, regime_label, regime_confidence)
                             except Exception as e:
-                                print(f"[CONTROLLER] Error with legacy HMM for {ticker}: {e}")
+                                logger.warning("Error with legacy HMM for %s: %s", ticker, e)
                         else:
                             # fallback to rule
                             regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
@@ -263,23 +282,35 @@ class ServiceController:
                             try:
                                 regime_state, regime_confidence = regime_service.predict_regime(vpin_score, vol_score)
                                 regime_label = regime_service.get_regime_label(regime_state)
-                                print(f"[CONTROLLER] Regime: {regime_state} ({regime_label}), Confidence: {regime_confidence:.2%}")
+                                logger.info("Regime: %s (%s), confidence=%.2f", regime_state, regime_label, regime_confidence)
                             except Exception as e:
-                                print(f"[CONTROLLER] Error predicting regime for {ticker}: {e}")
+                                logger.warning("Error predicting regime for %s: %s", ticker, e)
                         else:
                             # fallback to rule
                             regime_state, regime_confidence = rule_regime(float(vpin_score), float(vol_score))
                 
                 # c. Persist Metrics (VPIN + Volatility + Regime) to ticker-specific CSV
                 self._persist_metrics(ticker_dto, vpin_score, vol_score, regime_state, regime_confidence)
-                print(f"[CONTROLLER] Metric Saved: {ticker} | VPIN: {vpin_score:.4f} | Vol: {vol_score:.6f}" + 
-                      (f" | Regime: {regime_state}" if regime_state is not None else ""))
+                result["regime"] = regime_state
+                result["regime_confidence"] = float(regime_confidence) if regime_confidence is not None else None
+                logger.info(
+                    "Metric saved: %s | VPIN=%.4f | Vol=%.6f%s",
+                    ticker,
+                    float(vpin_score),
+                    float(vol_score),
+                    f" | Regime={regime_state}" if regime_state is not None else "",
+                )
+                return result
             except Exception as e:
-                print(f"[CONTROLLER] Error calculating volatility for {ticker}: {str(e)}")
+                logger.warning("Error calculating volatility/regime for %s: %s", ticker, e)
                 # Still persist VPIN even if volatility fails
                 vol_score = 0.0
                 self._persist_metrics(ticker_dto, vpin_score, vol_score, None, None)
-                print(f"[CONTROLLER] Metric Saved (VPIN only): {ticker} | VPIN: {vpin_score:.4f} | Vol: 0.0 (error)")
+                logger.info("Metric saved (VPIN only): %s | VPIN=%.4f | Vol=0.0", ticker, float(vpin_score))
+                result["volatility"] = 0.0
+                return result
+
+        return result
 
     def process_news(self, news_dto: NewsDTO):
         """
@@ -291,14 +322,14 @@ class ServiceController:
         Returns:
             SentimentDTO: The calculated sentiment result
         """
-        print(f"[CONTROLLER] Processing News: {news_dto.headline[:50]}...")
+        logger.info("Processing news: %s...", (news_dto.headline or "")[:50])
         
         # 1. Analyze Sentiment
-        sentiment_dto = self.sentiment_service.process_news(news_dto)
+        sentiment_dto = self.get_sentiment_service().process_news(news_dto)
         
         # 2. Persist
         self._persist_article_sentiment(news_dto, sentiment_dto)
-        print(f" -> Sentiment Saved: {sentiment_dto.sentiment_label} ({sentiment_dto.sentiment_score:.4f})")
+        logger.info("Sentiment saved: %s (%.4f)", sentiment_dto.sentiment_label, float(sentiment_dto.sentiment_score))
         
         return sentiment_dto
 
@@ -476,7 +507,7 @@ class ServiceController:
             df.to_csv(csv_path, index=False)
             
         except Exception as e:
-            print(f"[CONTROLLER] Error persisting metrics: {str(e)}")
+            logger.warning("Error persisting metrics: %s", e)
             import traceback
             traceback.print_exc()
 
