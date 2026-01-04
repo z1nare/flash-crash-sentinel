@@ -17,6 +17,7 @@ import bt # Backtesting library for backtesting trading strategies.
 #    2.2 Mean reversion strategies : 
 #        Bet the price will revert to the mean.  
 #        Use RSI, BBands to confirm the mean reversion. 
+#        FI: RSI < 30 and BBands < 30.  => Buy. RSI > 70 and BBands > 70.  => Sell.  Otherwise, do nothing. 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt 

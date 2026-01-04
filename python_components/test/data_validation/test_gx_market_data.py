@@ -5,9 +5,9 @@ import pytest
 
 
 pytest.importorskip("great_expectations")
-import great_expectations as ge  # noqa: E402
+import great_expectations as ge  
 
-from test.data_validation.gx_suites import apply_market_suite  # noqa: E402
+from test.data_validation.gx_suites import apply_market_suite  
 
 def test_gx_market_data_batch_validation():
     """
@@ -16,20 +16,13 @@ def test_gx_market_data_batch_validation():
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     hist_dir = os.path.join(base_dir, "historicalData")
 
-    # Pick a representative ticker file present in repo
-    candidates = ["NVDA.csv", "AMD.csv", "TSLA.csv", "SPY.csv"]
-    path = None
-    for f in candidates:
-        p = os.path.join(hist_dir, f)
-        if os.path.exists(p):
-            path = p
-            break
-
-    if path is None:
+    if not os.path.exists(hist_dir):
         pytest.skip("No historicalData/*.csv found to validate")
 
-    # Read as a batch (bounded for speed)
-    df = pd.read_csv(path, low_memory=False)
+    # Validate all ticker CSVs present (bounded for speed per file)
+    csv_files = [f for f in os.listdir(hist_dir) if f.lower().endswith(".csv")]
+    if not csv_files:
+        pytest.skip("No historicalData/*.csv found to validate")
 
     context = ge.get_context(mode="ephemeral")
     suite_name = "rb_market_data_suite"
@@ -39,14 +32,6 @@ def test_gx_market_data_batch_validation():
         pass
 
     # Use runtime batch (Data Context + batch)
-    batch_request = ge.core.batch.RuntimeBatchRequest(
-        datasource_name="rb_runtime",
-        data_connector_name="runtime_connector",
-        data_asset_name=os.path.basename(path),
-        runtime_parameters={"batch_data": df},
-        batch_identifiers={"default_identifier_name": "default"},
-    )
-
     # Build datasource (runtime)
     try:
         context.sources.add_pandas(name="rb_runtime")
@@ -54,10 +39,29 @@ def test_gx_market_data_batch_validation():
         # Older GE versions may already have it
         pass
 
-    validator = context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
-    apply_market_suite(validator)
-    results = validator.validate()
+    failures = []
+    for f in csv_files:
+        path = os.path.join(hist_dir, f)
+        df = pd.read_csv(path, low_memory=False)
+        # For robustness + speed: validate recent window and a small head window
+        df_head = df.head(2000)
+        df_tail = df.tail(2000)
+        df_batch = pd.concat([df_head, df_tail], ignore_index=True)
 
-    assert results.success, f"GX market data validation failed: {results}"
+        batch_request = ge.core.batch.RuntimeBatchRequest(
+            datasource_name="rb_runtime",
+            data_connector_name="runtime_connector",
+            data_asset_name=os.path.basename(path),
+            runtime_parameters={"batch_data": df_batch},
+            batch_identifiers={"default_identifier_name": "default"},
+        )
+
+        validator = context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+        apply_market_suite(validator)
+        results = validator.validate()
+        if not results.success:
+            failures.append((f, results))
+
+    assert not failures, f"GX market data validation failures: {[name for name, _ in failures]}"
 
 
