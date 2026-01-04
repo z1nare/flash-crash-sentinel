@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Tuple
 import pandas as pd
 
 import great_expectations as ge
+from great_expectations.exceptions import DataContextError
 
 # When executed as a script, Python sets sys.path[0] to the script directory (`scripts/`),
 # which breaks imports like `from test...` in CI. Ensure project root is importable.
@@ -81,11 +82,29 @@ def _build_validator_from_df(df: pd.DataFrame, asset_name: str, suite_name: str)
         # If suite creation fails, we rely on get_validator's create_expectation_suite if available.
         pass
 
+    # Try DataContext validator first (preferred), but fall back to `ge.from_pandas` for
+    # maximum cross-version compatibility in CI.
     try:
-        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name, create_expectation_suite=True)
-    except TypeError:
-        # Older/newer GE versions may not accept create_expectation_suite kwarg.
-        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+        try:
+            return context.get_validator(
+                batch_request=batch_request,
+                expectation_suite_name=suite_name,
+                create_expectation_suite=True,
+            )
+        except TypeError:
+            # Older/newer GE versions may not accept create_expectation_suite kwarg.
+            return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+    except DataContextError:
+        # Some GE versions / ephemeral contexts can fail to persist or locate suites.
+        # `ge.from_pandas` avoids suite store lookups entirely and is stable for exporting code-first suites.
+        v = ge.from_pandas(df)  # type: ignore[attr-defined]
+        try:
+            # Best-effort: set suite name for readability in exports.
+            if hasattr(v, "expectation_suite") and hasattr(v.expectation_suite, "expectation_suite_name"):
+                v.expectation_suite.expectation_suite_name = suite_name
+        except Exception:
+            pass
+        return v
 
 
 def _synthetic_market_df(rows: int = 200) -> pd.DataFrame:
