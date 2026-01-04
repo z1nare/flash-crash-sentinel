@@ -19,11 +19,16 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
 import great_expectations as ge
+
+# When executed as a script, Python sets sys.path[0] to the script directory (`scripts/`),
+# which breaks imports like `from test...` in CI. Ensure project root is importable.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from test.data_validation.gx_suites import apply_market_suite, apply_sentiment_suite
 
