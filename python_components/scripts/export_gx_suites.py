@@ -20,12 +20,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, Dict, List, Tuple
-
-import pandas as pd
-
-import great_expectations as ge
-from great_expectations.exceptions import DataContextError
+from typing import Any, Dict, List, Optional
 
 # When executed as a script, Python sets sys.path[0] to the script directory (`scripts/`),
 # which breaks imports like `from test...` in CI. Ensure project root is importable.
@@ -55,167 +50,133 @@ def _summarize_suite(name: str, suite_dict: Dict[str, Any]) -> List[str]:
     return lines
 
 
-def _build_validator_from_df(df: pd.DataFrame, asset_name: str, suite_name: str):
-    context = ge.get_context(mode="ephemeral")
-    try:
-        context.sources.add_pandas(name="rb_runtime")
-    except Exception:
-        pass
-
-    batch_request = ge.core.batch.RuntimeBatchRequest(
-        datasource_name="rb_runtime",
-        data_connector_name="runtime_connector",
-        data_asset_name=asset_name,
-        runtime_parameters={"batch_data": df},
-        batch_identifiers={"default_identifier_name": "default"},
-    )
-
-    # Great Expectations API varies across versions. We want a validator bound to `suite_name`.
-    # Some versions expose `add_or_update_expectation_suite`, others use `add_expectation_suite`,
-    # and some support `create_expectation_suite=True` on `get_validator`.
-    try:
-        if hasattr(context, "add_or_update_expectation_suite"):
-            context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
-        elif hasattr(context, "add_expectation_suite"):
-            context.add_expectation_suite(expectation_suite_name=suite_name)
-    except Exception:
-        # If suite creation fails, we rely on get_validator's create_expectation_suite if available.
-        pass
-
-    # Try DataContext validator first (preferred), but fall back to `ge.from_pandas` for
-    # maximum cross-version compatibility in CI.
-    try:
-        try:
-            return context.get_validator(
-                batch_request=batch_request,
-                expectation_suite_name=suite_name,
-                create_expectation_suite=True,
-            )
-        except TypeError:
-            # Older/newer GE versions may not accept create_expectation_suite kwarg.
-            return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
-    except DataContextError:
-        # Some GE versions / ephemeral contexts can fail to persist or locate suites.
-        # `ge.from_pandas` avoids suite store lookups entirely and is stable for exporting code-first suites.
-        v = ge.from_pandas(df)  # type: ignore[attr-defined]
-        try:
-            # Best-effort: set suite name for readability in exports.
-            if hasattr(v, "expectation_suite") and hasattr(v.expectation_suite, "expectation_suite_name"):
-                v.expectation_suite.expectation_suite_name = suite_name
-        except Exception:
-            pass
-        return v
-
-
-def _synthetic_market_df(rows: int = 200) -> pd.DataFrame:
+class SuiteRecorder:
     """
-    Build a small market-like DataFrame that satisfies the GX suite expectations.
-    This is used in CI when large `historicalData/*.csv` files are not present.
+    Minimal "validator-like" recorder that captures expectation calls from `gx_suites.py`.
+
+    Why:
+    - Exporting suite artifacts should NOT depend on Great Expectations DataContext internals,
+      which vary across versions and can break in CI.
+    - The portfolio artifacts only need the expectation JSON + readable summary.
     """
-    ts = pd.date_range("2026-01-01 09:30:00", periods=rows, freq="min")
-    # Use string timestamps with a space (suite expects regex: YYYY-MM-DD<space>...)
-    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
 
-    base = 100.0
-    opens = base + (pd.Series(range(rows)) * 0.01)
-    closes = opens + 0.02
-    highs = closes + 0.10
-    lows = opens - 0.10
-    volume = pd.Series([1000] * rows)
+    def __init__(self, suite_name: str):
+        self.suite_name = suite_name
+        self.expectations: List[Dict[str, Any]] = []
 
-    # VPIN should not be constant; use a repeating pattern.
-    vpin = (pd.Series(range(rows)) % 5) / 10.0 + 0.2  # 0.2..0.6
-    vol = pd.Series([0.01 + (i % 3) * 0.001 for i in range(rows)])
+    def _add(self, expectation_type: str, kwargs: Dict[str, Any]) -> None:
+        self.expectations.append({"expectation_type": expectation_type, "kwargs": kwargs})
 
-    df = pd.DataFrame(
-        {
-            "event_type": ["TICK"] * rows,
-            "timestamp": ts_str,
-            "ticker": ["SYNTH"] * rows,
-            "open": opens.astype(float),
-            "high": highs.astype(float),
-            "low": lows.astype(float),
-            "close": closes.astype(float),
-            "volume": volume.astype(int),
-            "VPIN": vpin.astype(float),
-            "vol": vol.astype(float),
+    # --- Methods used by test/data_validation/gx_suites.py ---
+    def expect_table_columns_to_contain_set(self, columns: List[str]) -> None:
+        self._add("expect_table_columns_to_contain_set", {"column_set": columns})
+
+    def expect_column_values_to_match_regex(self, column: str, regex: str, mostly: Optional[float] = None) -> None:
+        kwargs: Dict[str, Any] = {"column": column, "regex": regex}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        self._add("expect_column_values_to_match_regex", kwargs)
+
+    def expect_column_values_to_not_be_null(self, column: str, mostly: Optional[float] = None) -> None:
+        kwargs: Dict[str, Any] = {"column": column}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        self._add("expect_column_values_to_not_be_null", kwargs)
+
+    def expect_column_values_to_be_between(
+        self,
+        column: str,
+        min_value: Optional[float] = None,
+        max_value: Optional[float] = None,
+        mostly: Optional[float] = None,
+        row_condition: Optional[str] = None,
+        condition_parser: Optional[str] = None,
+    ) -> None:
+        kwargs: Dict[str, Any] = {"column": column, "min_value": min_value, "max_value": max_value}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        if row_condition is not None:
+            kwargs["row_condition"] = row_condition
+        if condition_parser is not None:
+            kwargs["condition_parser"] = condition_parser
+        self._add("expect_column_values_to_be_between", kwargs)
+
+    def expect_column_pair_values_A_to_be_greater_than_or_equal_to_B(
+        self,
+        column_A: str,
+        column_B: str,
+        mostly: Optional[float] = None,
+        row_condition: Optional[str] = None,
+        condition_parser: Optional[str] = None,
+    ) -> None:
+        kwargs: Dict[str, Any] = {"column_A": column_A, "column_B": column_B}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        if row_condition is not None:
+            kwargs["row_condition"] = row_condition
+        if condition_parser is not None:
+            kwargs["condition_parser"] = condition_parser
+        self._add("expect_column_pair_values_A_to_be_greater_than_or_equal_to_B", kwargs)
+
+    def expect_column_pair_values_A_to_be_less_than_or_equal_to_B(
+        self,
+        column_A: str,
+        column_B: str,
+        mostly: Optional[float] = None,
+        row_condition: Optional[str] = None,
+        condition_parser: Optional[str] = None,
+    ) -> None:
+        kwargs: Dict[str, Any] = {"column_A": column_A, "column_B": column_B}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        if row_condition is not None:
+            kwargs["row_condition"] = row_condition
+        if condition_parser is not None:
+            kwargs["condition_parser"] = condition_parser
+        self._add("expect_column_pair_values_A_to_be_less_than_or_equal_to_B", kwargs)
+
+    def expect_column_proportion_of_unique_values_to_be_between(
+        self, column: str, min_value: float, max_value: float
+    ) -> None:
+        self._add(
+            "expect_column_proportion_of_unique_values_to_be_between",
+            {"column": column, "min_value": min_value, "max_value": max_value},
+        )
+
+    def expect_column_values_to_be_in_set(self, column: str, value_set: List[str], mostly: Optional[float] = None) -> None:
+        kwargs: Dict[str, Any] = {"column": column, "value_set": value_set}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        self._add("expect_column_values_to_be_in_set", kwargs)
+
+    def expect_column_value_lengths_to_be_between(
+        self, column: str, min_value: int, max_value: int, mostly: Optional[float] = None
+    ) -> None:
+        kwargs: Dict[str, Any] = {"column": column, "min_value": min_value, "max_value": max_value}
+        if mostly is not None:
+            kwargs["mostly"] = mostly
+        self._add("expect_column_value_lengths_to_be_between", kwargs)
+
+    def to_suite_dict(self) -> Dict[str, Any]:
+        return {
+            "expectation_suite_name": self.suite_name,
+            "expectations": self.expectations,
+            "meta": {"exported_by": "scripts/export_gx_suites.py", "suite_type": "code_first"},
         }
-    )
-    return df
-
-
-def _synthetic_sentiment_df(rows: int = 300) -> pd.DataFrame:
-    """
-    Build a small sentiment-like DataFrame that satisfies the GX suite expectations.
-    Used in CI when the real `articles_with_sentiment.csv` is not present.
-    """
-    ts = pd.date_range("2026-01-01 10:00:00", periods=rows, freq="min")
-    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
-
-    labels = []
-    scores = []
-    for i in range(rows):
-        if i % 3 == 0:
-            labels.append("positive")
-            scores.append(0.6)
-        elif i % 3 == 1:
-            labels.append("negative")
-            scores.append(-0.6)
-        else:
-            labels.append("neutral")
-            scores.append(0.0)
-
-    df = pd.DataFrame(
-        {
-            "event_type": ["NEWS"] * rows,
-            "timestamp": ts_str,
-            "ticker": ["SYNTH"] * rows,
-            "headline": ["Synthetic headline for GX validation."] * rows,
-            "url": ["https://example.com/article"] * rows,
-            "sentiment_score": scores,
-            "sentiment_label": labels,
-        }
-    )
-    return df
 
 
 def main() -> int:
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_dir = os.path.join(repo_dir, "docs", "data_validation", "gx_suites")
 
-    # Market sample
-    hist_dir = os.path.join(repo_dir, "historicalData")
-    market_path = None
-    for f in ["NVDA.csv", "AMD.csv", "TSLA.csv", "SPY.csv"]:
-        p = os.path.join(hist_dir, f)
-        if os.path.exists(p):
-            market_path = p
-            break
-    if market_path is None:
-        # CI fallback: no large datasets committed
-        df_market = _synthetic_market_df()
-        market_asset_name = "SYNTHETIC_MARKET"
-    else:
-        df_market = pd.read_csv(market_path, low_memory=False)
-        market_asset_name = os.path.basename(market_path)
+    # Export suites from code-first definitions without relying on GE runtime APIs.
+    rec_market = SuiteRecorder("rb_market_data_suite")
+    apply_market_suite(rec_market)
+    suite_market = rec_market.to_suite_dict()
 
-    # Sentiment sample
-    sentiment_path = os.path.join(repo_dir, "dataInCsv", "articles_with_sentiment.csv")
-    if not os.path.exists(sentiment_path):
-        df_sent = _synthetic_sentiment_df()
-        sentiment_asset_name = "SYNTHETIC_SENTIMENT"
-    else:
-        df_sent = pd.read_csv(sentiment_path, low_memory=False, nrows=20000)
-        sentiment_asset_name = os.path.basename(sentiment_path)
-
-    # Build validators and apply suites
-    v_market = _build_validator_from_df(df_market, market_asset_name, "rb_market_data_suite")
-    apply_market_suite(v_market)
-    suite_market = v_market.get_expectation_suite(discard_failed_expectations=False).to_json_dict()
-
-    v_sent = _build_validator_from_df(df_sent, sentiment_asset_name, "rb_sentiment_data_suite")
-    apply_sentiment_suite(v_sent)
-    suite_sent = v_sent.get_expectation_suite(discard_failed_expectations=False).to_json_dict()
+    rec_sent = SuiteRecorder("rb_sentiment_data_suite")
+    apply_sentiment_suite(rec_sent)
+    suite_sent = rec_sent.to_suite_dict()
 
     # Write JSON
     _write_json(os.path.join(out_dir, "rb_market_data_suite.json"), suite_market)
