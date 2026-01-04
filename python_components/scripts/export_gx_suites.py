@@ -77,6 +77,78 @@ def _build_validator_from_df(df: pd.DataFrame, asset_name: str, suite_name: str)
     return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
 
 
+def _synthetic_market_df(rows: int = 200) -> pd.DataFrame:
+    """
+    Build a small market-like DataFrame that satisfies the GX suite expectations.
+    This is used in CI when large `historicalData/*.csv` files are not present.
+    """
+    ts = pd.date_range("2026-01-01 09:30:00", periods=rows, freq="min")
+    # Use string timestamps with a space (suite expects regex: YYYY-MM-DD<space>...)
+    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+
+    base = 100.0
+    opens = base + (pd.Series(range(rows)) * 0.01)
+    closes = opens + 0.02
+    highs = closes + 0.10
+    lows = opens - 0.10
+    volume = pd.Series([1000] * rows)
+
+    # VPIN should not be constant; use a repeating pattern.
+    vpin = (pd.Series(range(rows)) % 5) / 10.0 + 0.2  # 0.2..0.6
+    vol = pd.Series([0.01 + (i % 3) * 0.001 for i in range(rows)])
+
+    df = pd.DataFrame(
+        {
+            "event_type": ["TICK"] * rows,
+            "timestamp": ts_str,
+            "ticker": ["SYNTH"] * rows,
+            "open": opens.astype(float),
+            "high": highs.astype(float),
+            "low": lows.astype(float),
+            "close": closes.astype(float),
+            "volume": volume.astype(int),
+            "VPIN": vpin.astype(float),
+            "vol": vol.astype(float),
+        }
+    )
+    return df
+
+
+def _synthetic_sentiment_df(rows: int = 300) -> pd.DataFrame:
+    """
+    Build a small sentiment-like DataFrame that satisfies the GX suite expectations.
+    Used in CI when the real `articles_with_sentiment.csv` is not present.
+    """
+    ts = pd.date_range("2026-01-01 10:00:00", periods=rows, freq="min")
+    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S")
+
+    labels = []
+    scores = []
+    for i in range(rows):
+        if i % 3 == 0:
+            labels.append("positive")
+            scores.append(0.6)
+        elif i % 3 == 1:
+            labels.append("negative")
+            scores.append(-0.6)
+        else:
+            labels.append("neutral")
+            scores.append(0.0)
+
+    df = pd.DataFrame(
+        {
+            "event_type": ["NEWS"] * rows,
+            "timestamp": ts_str,
+            "ticker": ["SYNTH"] * rows,
+            "headline": ["Synthetic headline for GX validation."] * rows,
+            "url": ["https://example.com/article"] * rows,
+            "sentiment_score": scores,
+            "sentiment_label": labels,
+        }
+    )
+    return df
+
+
 def main() -> int:
     repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out_dir = os.path.join(repo_dir, "docs", "data_validation", "gx_suites")
@@ -90,21 +162,28 @@ def main() -> int:
             market_path = p
             break
     if market_path is None:
-        raise SystemExit("No historicalData/*.csv found to export GX market suite.")
-    df_market = pd.read_csv(market_path, low_memory=False)
+        # CI fallback: no large datasets committed
+        df_market = _synthetic_market_df()
+        market_asset_name = "SYNTHETIC_MARKET"
+    else:
+        df_market = pd.read_csv(market_path, low_memory=False)
+        market_asset_name = os.path.basename(market_path)
 
     # Sentiment sample
     sentiment_path = os.path.join(repo_dir, "dataInCsv", "articles_with_sentiment.csv")
     if not os.path.exists(sentiment_path):
-        raise SystemExit("Sentiment file not found to export GX sentiment suite.")
-    df_sent = pd.read_csv(sentiment_path, low_memory=False, nrows=20000)
+        df_sent = _synthetic_sentiment_df()
+        sentiment_asset_name = "SYNTHETIC_SENTIMENT"
+    else:
+        df_sent = pd.read_csv(sentiment_path, low_memory=False, nrows=20000)
+        sentiment_asset_name = os.path.basename(sentiment_path)
 
     # Build validators and apply suites
-    v_market = _build_validator_from_df(df_market, os.path.basename(market_path), "rb_market_data_suite")
+    v_market = _build_validator_from_df(df_market, market_asset_name, "rb_market_data_suite")
     apply_market_suite(v_market)
     suite_market = v_market.get_expectation_suite(discard_failed_expectations=False).to_json_dict()
 
-    v_sent = _build_validator_from_df(df_sent, os.path.basename(sentiment_path), "rb_sentiment_data_suite")
+    v_sent = _build_validator_from_df(df_sent, sentiment_asset_name, "rb_sentiment_data_suite")
     apply_sentiment_suite(v_sent)
     suite_sent = v_sent.get_expectation_suite(discard_failed_expectations=False).to_json_dict()
 
