@@ -17,13 +17,14 @@ class VolatilityService:
                       from `ServiceController` so it points at a ticker file in
                       `historicalData/`.
         """
+        # NOTE: even when a csv_path is provided, this service still needs its
+        # in-memory rolling cache initialized (used by process_tick()).
         if csv_path:
             self.CSV_PATH = csv_path
-            return
-
-        # Portable fallback (used only if caller didn't inject a path).
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.CSV_PATH = os.path.join(base_dir, "dataInCsv", "data.csv")
+        else:
+            # Portable fallback (used only if caller didn't inject a path).
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            self.CSV_PATH = os.path.join(base_dir, "dataInCsv", "data.csv")
 
         # Rolling daily-candle cache for fast per-tick volatility.
         # We maintain:

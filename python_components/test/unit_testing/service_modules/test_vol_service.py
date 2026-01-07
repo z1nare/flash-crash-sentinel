@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -23,9 +24,11 @@ def _tick(day_offset: int, *, open_: float, high: float, low: float, close: floa
 
 def test_process_tick_returns_zero_for_invalid_timestamp():
     svc = VolatilityService(csv_path="unused.csv")
-    bad = TickerDTO(
+    # Use a minimal duck-typed object here rather than TickerDTO: Pydantic will
+    # correctly reject invalid datetimes before VolatilityService sees them.
+    bad = SimpleNamespace(
         event_type="TICK",
-        timestamp="not-a-date",  # type: ignore[arg-type]
+        timestamp="not-a-date",
         ticker="TEST",
         open=1.0,
         high=1.0,

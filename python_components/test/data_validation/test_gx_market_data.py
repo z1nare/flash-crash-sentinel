@@ -9,6 +9,30 @@ import great_expectations as ge
 
 from test.data_validation.gx_suites import apply_market_suite  
 
+def _get_validator_create_suite(context, batch_request, suite_name: str):
+    """
+    Great Expectations API varies by version.
+    Make suite creation explicit so ephemeral contexts don't error with:
+    'ExpectationSuite with name ... was not found.'
+    """
+    try:
+        return context.get_validator(
+            batch_request=batch_request,
+            expectation_suite_name=suite_name,
+            create_expectation_suite=True,
+        )
+    except TypeError:
+        # Some versions don't accept create_expectation_suite kwarg
+        try:
+            context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
+        except Exception:
+            try:
+                context.add_expectation_suite(expectation_suite_name=suite_name)
+            except Exception:
+                pass
+        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+
+
 def test_gx_market_data_batch_validation():
     """
     Validates that market CSVs satisfy basic schema/invariant expectations.
@@ -56,7 +80,7 @@ def test_gx_market_data_batch_validation():
             batch_identifiers={"default_identifier_name": "default"},
         )
 
-        validator = context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+        validator = _get_validator_create_suite(context, batch_request, suite_name)
         apply_market_suite(validator)
         results = validator.validate()
         if not results.success:

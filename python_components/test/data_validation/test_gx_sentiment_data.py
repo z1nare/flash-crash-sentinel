@@ -9,6 +9,30 @@ import great_expectations as ge
 
 from test.data_validation.gx_suites import apply_sentiment_suite 
 
+
+def _get_validator_create_suite(context, batch_request, suite_name: str):
+    """
+    Great Expectations API varies by version.
+    Make suite creation explicit so ephemeral contexts don't error with:
+    'ExpectationSuite with name ... was not found.'
+    """
+    try:
+        return context.get_validator(
+            batch_request=batch_request,
+            expectation_suite_name=suite_name,
+            create_expectation_suite=True,
+        )
+    except TypeError:
+        # Some versions don't accept create_expectation_suite kwarg
+        try:
+            context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
+        except Exception:
+            try:
+                context.add_expectation_suite(expectation_suite_name=suite_name)
+            except Exception:
+                pass
+        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+
 def test_gx_sentiment_data_batch_validation():
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     path = os.path.join(base_dir, "dataInCsv", "articles_with_sentiment.csv")
@@ -47,7 +71,7 @@ def test_gx_sentiment_data_batch_validation():
     except Exception:
         pass
 
-    validator = context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+    validator = _get_validator_create_suite(context, batch_request, suite_name)
     apply_sentiment_suite(validator)
     results = validator.validate()
 
