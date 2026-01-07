@@ -76,6 +76,41 @@ def build_validator_from_df(df, suite_name: str):
             errors.append(("DataContext add_pandas", e))
             datasource = None
 
+        # --- Classic config-based datasource (works on many GE versions) ---
+        # Some GE installs expose `context.sources.add_pandas` but do not register the datasource
+        # in a way that `RuntimeBatchRequest` can resolve. As a fallback, register a classic
+        # pandas runtime datasource via `add_datasource`.
+        try:
+            if hasattr(context, "add_datasource"):
+                try:
+                    context.add_datasource(  # type: ignore[call-arg]
+                        name=datasource_name,
+                        class_name="Datasource",
+                        execution_engine={"class_name": "PandasExecutionEngine"},
+                        data_connectors={
+                            "runtime_data_connector": {
+                                "class_name": "RuntimeDataConnector",
+                                "batch_identifiers": ["default_identifier_name"],
+                            }
+                        },
+                    )
+                except TypeError:
+                    # Older signatures sometimes require all args as a dict
+                    context.add_datasource(  # type: ignore[call-arg]
+                        name=datasource_name,
+                        class_name="Datasource",
+                        module_name="great_expectations.datasource",
+                        execution_engine={"class_name": "PandasExecutionEngine"},
+                        data_connectors={
+                            "runtime_data_connector": {
+                                "class_name": "RuntimeDataConnector",
+                                "batch_identifiers": ["default_identifier_name"],
+                            }
+                        },
+                    )
+        except Exception as e:
+            errors.append(("DataContext add_datasource", e))
+
         # If fluent datasource couldn't be created, try to discover an existing datasource name.
         if datasource is None:
             try:
@@ -93,6 +128,7 @@ def build_validator_from_df(df, suite_name: str):
         # Try common runtime connector names across GE versions.
         connector_candidates = [
             "runtime_connector",
+                "runtime_data_connector",
             "default_runtime_data_connector_name",
             "default_runtime_data_connector",
             "default_runtime_connector",
