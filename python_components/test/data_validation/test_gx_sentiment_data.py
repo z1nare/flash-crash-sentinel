@@ -8,30 +8,7 @@ pytest.importorskip("great_expectations")
 import great_expectations as ge  
 
 from test.data_validation.gx_suites import apply_sentiment_suite 
-
-
-def _get_validator_create_suite(context, batch_request, suite_name: str):
-    """
-    Great Expectations API varies by version.
-    Make suite creation explicit so ephemeral contexts don't error with:
-    'ExpectationSuite with name ... was not found.'
-    """
-    try:
-        return context.get_validator(
-            batch_request=batch_request,
-            expectation_suite_name=suite_name,
-            create_expectation_suite=True,
-        )
-    except TypeError:
-        # Some versions don't accept create_expectation_suite kwarg
-        try:
-            context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
-        except Exception:
-            try:
-                context.add_expectation_suite(expectation_suite_name=suite_name)
-            except Exception:
-                pass
-        return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
+from test.data_validation.gx_test_utils import build_validator_from_df
 
 def test_gx_sentiment_data_batch_validation():
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,27 +28,9 @@ def test_gx_sentiment_data_batch_validation():
         pytest.skip("Sentiment file is empty")
     df = pd.concat([first_chunk, last_chunk], ignore_index=True)
 
-    context = ge.get_context(mode="ephemeral")
     suite_name = "rb_sentiment_data_suite"
-    try:
-        context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
-    except Exception:
-        pass
 
-    batch_request = ge.core.batch.RuntimeBatchRequest(
-        datasource_name="rb_runtime",
-        data_connector_name="runtime_connector",
-        data_asset_name=os.path.basename(path),
-        runtime_parameters={"batch_data": df},
-        batch_identifiers={"default_identifier_name": "default"},
-    )
-
-    try:
-        context.sources.add_pandas(name="rb_runtime")
-    except Exception:
-        pass
-
-    validator = _get_validator_create_suite(context, batch_request, suite_name)
+    validator = build_validator_from_df(df, suite_name=suite_name)
     apply_sentiment_suite(validator)
     results = validator.validate()
 
