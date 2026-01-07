@@ -19,28 +19,46 @@ def build_validator_from_df(df, suite_name: str):
     """
     import great_expectations as ge
 
-    # 1) Try DataContext RuntimeBatchRequest path (works on many GE versions)
+    # 1) Prefer PandasDataset (stable: has expectation methods + validate()).
+    # This avoids DataContext suite-store differences entirely.
+    try:
+        try:
+            from great_expectations.dataset import PandasDataset  # type: ignore
+        except Exception:
+            from great_expectations.dataset.pandas_dataset import PandasDataset  # type: ignore
+
+        ds = PandasDataset(df)
+        # Best-effort: attach suite name for readability/debugging
+        try:
+            if hasattr(ds, "expectation_suite") and hasattr(ds.expectation_suite, "expectation_suite_name"):
+                ds.expectation_suite.expectation_suite_name = suite_name
+        except Exception:
+            pass
+        return ds
+    except Exception:
+        pass
+
+    # 2) Try `ge.from_pandas(df)` if present (older GE convenience)
+    from_pandas = getattr(ge, "from_pandas", None)
+    if callable(from_pandas):
+        v = from_pandas(df)
+        try:
+            if hasattr(v, "expectation_suite") and hasattr(v.expectation_suite, "expectation_suite_name"):
+                v.expectation_suite.expectation_suite_name = suite_name
+        except Exception:
+            pass
+        return v
+
+    # 3) Try DataContext RuntimeBatchRequest path (modern GE). This is last because some
+    # GE versions behave unexpectedly in ephemeral mode (suite store not writable).
     try:
         context = ge.get_context(mode="ephemeral")
 
-        # Best-effort: add runtime datasource
         try:
             context.sources.add_pandas(name="rb_runtime")
         except Exception:
             pass
 
-        # Best-effort: create suite (APIs vary)
-        try:
-            if hasattr(context, "add_or_update_expectation_suite"):
-                context.add_or_update_expectation_suite(expectation_suite_name=suite_name)
-            elif hasattr(context, "add_expectation_suite"):
-                context.add_expectation_suite(expectation_suite_name=suite_name)
-            elif hasattr(context, "create_expectation_suite"):
-                context.create_expectation_suite(expectation_suite_name=suite_name, overwrite_existing=True)
-        except Exception:
-            pass
-
-        # RuntimeBatchRequest signature varies by version, but this is the most common form.
         batch_request = ge.core.batch.RuntimeBatchRequest(
             datasource_name="rb_runtime",
             data_connector_name="runtime_connector",
@@ -58,50 +76,8 @@ def build_validator_from_df(df, suite_name: str):
             )
         except TypeError:
             return context.get_validator(batch_request=batch_request, expectation_suite_name=suite_name)
-        except Exception:
-            # Fall through to other strategies
-            pass
     except Exception:
         pass
-
-    # 2) Try direct Validator construction (avoids DataContext suite store entirely)
-    try:
-        from great_expectations.execution_engine import PandasExecutionEngine  # type: ignore
-        from great_expectations.validator.validator import Validator  # type: ignore
-
-        suite: Optional[Any] = None
-        try:
-            from great_expectations.core.expectation_suite import ExpectationSuite  # type: ignore
-
-            suite = ExpectationSuite(expectation_suite_name=suite_name)
-        except Exception:
-            try:
-                from great_expectations.core import ExpectationSuite  # type: ignore
-
-                suite = ExpectationSuite(expectation_suite_name=suite_name)
-            except Exception:
-                suite = None
-
-        engine = PandasExecutionEngine()
-
-        # Batch APIs vary too; try the simplest supported forms.
-        try:
-            return Validator(execution_engine=engine, batches=[{"data": df}], expectation_suite=suite)
-        except Exception:
-            return Validator(execution_engine=engine, batch_data=df, expectation_suite=suite)
-    except Exception:
-        pass
-
-    # 3) Fallback: legacy convenience helper (if present)
-    from_pandas = getattr(ge, "from_pandas", None)
-    if callable(from_pandas):
-        v = from_pandas(df)
-        try:
-            if hasattr(v, "expectation_suite") and hasattr(v.expectation_suite, "expectation_suite_name"):
-                v.expectation_suite.expectation_suite_name = suite_name
-        except Exception:
-            pass
-        return v
 
     raise RuntimeError(
         "Could not construct a Great Expectations validator from DataFrame. "
