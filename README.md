@@ -13,7 +13,7 @@ python -m venv .venv
 # Windows
 .venv\Scripts\activate
 pip install -r python_components/requirements.txt
-```
+``` 
 
 - Run API:
 
