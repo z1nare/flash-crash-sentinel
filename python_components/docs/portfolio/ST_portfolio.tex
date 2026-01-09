@@ -12,6 +12,9 @@
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{enumitem}
+\setlist{nosep}
+\setlength{\parskip}{3pt}
 
 \title{Software Testing 2025/6 Portfolio}
 \author{Arsenii Harbar | s2529401}
@@ -20,45 +23,127 @@
 \maketitle
 
 \section{Outline of the Software Being Tested}
-\textit{In this section provide a brief paragraph describing the software}
+\textbf{RiskBeacon} is a Python-based real-time market risk monitoring system (FastAPI backend + Streamlit dashboard) that ingests OHLCV ticks (\texttt{POST /api/tick}), computes quantitative risk metrics (VPIN, Yang--Zhang volatility, regime classification), persists results to per-ticker CSVs, and generates dashboard-ready Plotly HTML artefacts (\texttt{POST /api/plots/generate}). The system is high-risk because errors can misrepresent market stress; therefore the test process targets quantitative invariants, robustness to malformed data, external dependency failures (Interactive Brokers), and performance under load. Requirements and traceability are documented in \texttt{docs/requirements.md} and \texttt{docs/requirements\_to\_tests.md}.
 
 \section{Learning Outcomes}
-\textit{This is the main part of the portfolio where you describe how you have gone about meeting each of the subcriteria.}
+\textit{Weights used: default 20\% per learning outcome. Evidence is linked to file paths and commits in the Git repository.}
 \begin{enumerate}
 \item \textbf{Analyze requirements to determine appropriate testing strategies} \marginpar{[default 20\%]}
 \begin{enumerate}
-\item \textbf{Range of requirements, functional requirements, measurable quality attributes, qualitative requirements}
-\item \textbf{Level of requirements, system, integration, unit}
-\item \textbf{Identifying test approach for chosen attributes}
-\item \textbf{Assess the appropriateness of your chosen testing approach}
+\item \textbf{Range of requirements, functional requirements, measurable quality attributes, qualitative requirements}\\
+\textbf{Range:} I defined 17 testable requirements (\texttt{RB-REQ-01..RB-REQ-17}) spanning functional correctness (tick persistence, plot generation), quantitative invariants (VPIN in $[0,1]$, volatility $\ge 0$), robustness (bad CSV lines, missing sentiment, IB failure), performance targets (latency/time), and MLOps reproducibility (MLflow artefacts). Evidence: \texttt{docs/requirements.md}.
+
+\item \textbf{Level of requirements, system, integration, unit}\\
+\textbf{Levels:} requirements explicitly span unit (RB-REQ-06/07/09), integration (RB-REQ-02/13), and system (RB-REQ-01/03/04/05/14/15/16/17). Evidence: \texttt{docs/requirements.md} (each requirement includes a level) and traceability: \texttt{docs/requirements\_to\_tests.md}.
+
+\item \textbf{Identifying test approach for chosen attributes}\\
+\textbf{Testing philosophy (lecture-aligned):}
+\begin{itemize}
+  \item \textbf{Verification vs validation:} verification is requirements-driven tests + automated checks (pytest, GX, MLflow, perf). Validation is whether the Streamlit dashboard supports risk monitoring decisions (manual scenario checks + stable/fast UX).
+  \item \textbf{Optimistic vs pessimistic inaccuracy:} optimistic---testing can miss faults; mitigated via redundancy (unit + property + integration + perf + CI). Pessimistic---analysis may reject correct artefacts due to approximation/tool limits (GX version differences); mitigated via restriction (pinned dev deps, CI-safe exports) and documentation.
+  \item \textbf{A\&T principles (repo examples):}
+  \begin{itemize}
+    \item \textbf{Sensitivity:} deterministic unit tests for services (\texttt{test/unit\_testing/service\_modules/*}).
+    \item \textbf{Redundancy:} VPIN/vol checked by invariants (Hypothesis) + data validation (GX) + integration/perf.
+    \item \textbf{Restriction:} disable heavy FinBERT download in CI with \texttt{RISKBEACON\_DISABLE\_FINBERT=true} (\texttt{.github/workflows/ci.yml}).
+    \item \textbf{Partition:} category-partitioning for \texttt{/api/tick} inputs (see LO3) + boundary cases in tests.
+    \item \textbf{Visibility:} CI artefacts (coverage XML/HTML, exported GX suites) and perf prints.
+    \item \textbf{Feedback:} defects (plot crash, VPIN saturation, CI/GX brittleness) drove new tests and instrumentation (commits \texttt{0d5997f}, \texttt{c1cae2d}, \texttt{ed7f133}).
+  \end{itemize}
+\end{itemize}
+
+\item \textbf{Assess the appropriateness of your chosen testing approach}\\
+\textbf{Appropriateness:} approaches match the risk profile: invariants for oracle-free quant correctness, integration tests for API/CSV side-effects, perf tests for latency targets, and CI automation for repeatability and visibility. Known limitations (IB permissions/market hours; toolchain constraints for GX on Windows without pinning) are documented and mitigated via fallbacks (\texttt{ib\_troubleshoot.py}, pinned \texttt{requirements-dev.txt}).
 \end{enumerate}
 \item \textbf{Design and implement comprehensive test plans with instrumented code} \marginpar{[default 20\%]}
 \begin{enumerate}
-\item \textbf{Construction of the test plan}
-\item \textbf{Evaluation of the quality of the test plan}
-\item \textbf{Instrumentation of the code}
-\item \textbf{Evaluation of the instrumentation}
+\item \textbf{Construction of the test plan}\\
+\textbf{Auditable plan:} \texttt{docs/PLAN.md} defines scope, a test inventory table (tests $\rightarrow$ files $\rightarrow$ RB-REQs), a risk register (IB, malformed CSVs, heavy deps), and monitoring metrics (coverage trend, CI pass rate, perf med/p95).
+
+\item \textbf{Evaluation of the quality of the test plan}\\
+\textbf{Quality assessment:} the plan prioritises the critical path (ingestion $\rightarrow$ persistence $\rightarrow$ plots) early to maximise leverage (fault cost grows with time). Residual gaps are explicitly stated (metamorphic ML tests and time-series split/backtesting extensions), preventing over-claiming adequacy.
+
+\item \textbf{Instrumentation of the code}\\
+\textbf{Instrumentation (testability changes):} robust logging and controllable behaviour were added to make failures diagnosable and tests stable: plot loader deduplication (\texttt{services/plotService.py}), fast rolling volatility cache (\texttt{services/vol\_service.py}), CI-safe sentiment flag (\texttt{services/sentimentService.py}), and IB status endpoints + local troubleshoot tool (\texttt{ib\_troubleshoot.py}).
+
+\item \textbf{Evaluation of the instrumentation}\\
+\textbf{Evaluation:} instrumentation improves visibility and feedback loops (CI artefacts, logs, and deterministic harnesses). External dependency variability (IB) remains a limitation, mitigated by graceful degradation and explicit diagnostics.
 \end{enumerate}
 \item \textbf{Apply a wide variety of testing techniques and compute test coverage and yield according to a variety of criteria} \marginpar{[default 20\%]}
 \begin{enumerate}
-\item\textbf{Range of techniques}
-\item\textbf{Evaluation criteria for the adequacy of the testing}
-\item \textbf{Results of testing}
-\item \textbf{Evaluation of the results}
+\item\textbf{Range of techniques}\\
+\textbf{High-signal techniques (implemented):}
+\begin{itemize}
+  \item Property-based invariants: \texttt{test/unit\_testing/Quant\_services/*}.
+  \item Deterministic unit tests for services: \texttt{test/unit\_testing/service\_modules/*}.
+  \item Integration tests (FastAPI TestClient): \texttt{test/integration\_testing/test\_api\_tick\_persists\_csv.py}, \texttt{test/integration\_testing/test\_api\_plot\_generation.py}.
+  \item Performance measurement tests: \texttt{test/integration\_testing/test\_perf\_api\_tick\_latency.py}, \texttt{test/integration\_testing/test\_perf\_plot\_generation\_time.py}.
+  \item Data validation suites (GX) + CI suite export: \texttt{test/data\_validation/*}, \texttt{scripts/export\_gx\_suites.py}.
+  \item MLOps reproducibility (MLflow): \texttt{test/mlops/test\_mlflow\_tracking.py}.
+\end{itemize}
+
+\textbf{Combinatorial/partition evidence (category-partition for \texttt{/api/tick}):}
+\begin{center}
+\begin{tabular}{ll}
+\textbf{Category} & \textbf{Partitions / boundary cases} \\
+\hline
+Timestamp & ISO8601; invalid; timezone-aware/naive \\
+Volume & $<0$, $=0$, typical, huge (bucket fill) \\
+OHLC & ordered ($high \ge low$); missing; extreme returns \\
+Ticker & normal; lowercase; empty/whitespace \\
+\end{tabular}
+\end{center}
+
+\item\textbf{Evaluation criteria for the adequacy of the testing}\\
+\textbf{Adequacy criteria (lecture-aligned):} coverage (statement/branch proxy via pytest-cov) and requirement traceability (RB-REQ $\rightarrow$ tests). Yield is planned via mutation testing (\texttt{mutmut}) on high-risk quant services (\texttt{services/vpin\_service.py}, \texttt{services/vol\_service.py}).
+
+\item \textbf{Results of testing}\\
+\textbf{Results evidence:} coverage output (\texttt{coverage.xml}, \texttt{htmlcov/}), perf test prints (median/p95, elapsed time), CI artefact uploads (\texttt{.github/workflows/ci.yml}). Data validation produces suite exports (human-readable JSON + summary).
+
+\item \textbf{Evaluation of the results}\\
+\textbf{Evaluation:} coverage is treated as an adequacy criterion (not a proof). Uncovered/low-coverage modules are justified when they depend on external artefacts (\texttt{services/data\_replay\_service.py}) or optional integrations (IB). Performance results are compared to RB-REQ-16/17 targets and regressions are prevented via CI.
 \end{enumerate}
 \item \textbf{Evaluate the limitations of a given testing process, using statistical methods where appropriate, and summarise outcomes} \marginpar{[default 20\%]}
 \begin{enumerate}
-\item \textbf{Identifying gaps and omissions in the testing process}
-\item \textbf{Identifying target coverage/performance levels for the different testing procedures} 
-\item \textbf{Discussing how the testing carried out compares with the target levels}
-\item \textbf{Discussion of what would be necessary to achieve the target level}
+\item \textbf{Identifying gaps and omissions in the testing process}\\
+\textbf{Gaps/omissions:} (1) regime metamorphic tests (RB-REQ-10) are planned but not yet implemented; (2) backtesting/time-series split enforcement (RB-REQ-11) is planned; (3) IB live-market behaviour cannot be exhaustively tested due to permissions/market hours. These are documented in \texttt{docs/PLAN.md}.
+
+\item \textbf{Identifying target coverage/performance levels for the different testing procedures}\\
+\textbf{Targets:} performance targets are defined as measurable requirements (RB-REQ-16/17) in \texttt{docs/requirements.md}. For structural adequacy, coverage is monitored via CI artefacts; for yield, mutation testing is planned for high-risk quant services.
+
+\item \textbf{Discussing how the testing carried out compares with the target levels}\\
+\textbf{Measured evidence (fill from your captured outputs):}
+\begin{center}
+\begin{tabular}{lll}
+\textbf{Metric} & \textbf{Target} & \textbf{Measured} \\
+\hline
+\texttt{/api/tick} median/p95 & $<50$ms / $<150$ms & \textit{(paste from perf test log)} \\
+Plot generation time (3000 rows) & $<300$s & \textit{(paste from perf test log)} \\
+Coverage (\texttt{api/controllers/services}) & tracked & \textit{(paste from pytest-cov)} \\
+\end{tabular}
+\end{center}
+
+\item \textbf{Discussion of what would be necessary to achieve the target level}\\
+\textbf{To exceed targets:} add metamorphic ML tests, implement time-series split checks for evaluation/backtesting, and run mutation testing to quantify residual fault estimate. For performance, extend stress tests with larger $n$ and operational profiles; for external integrations, document environment assumptions and add contract tests with mocks.
 \end{enumerate}
 \item \textbf{Conduct reviews, inspections, and design and implement automated testing processes} \marginpar{[default 20\%]}
 \begin{enumerate}    
-\item \textbf{Identify and apply review criteria to selected parts of the code and identify issues in the code}
-\item \textbf{Construct an appropriate CI pipeline for the software}
-\item\textbf{Automate some aspects of the testing}
-\item \textbf{Demonstrate the CI pipeline functions as expected}
+\item \textbf{Identify and apply review criteria to selected parts of the code and identify issues in the code}\\
+\textbf{Review criteria applied:} correctness (invariants, edge cases), robustness (bad inputs/external failures), and maintainability (testability, logging, dependency isolation). Examples of review-driven fixes:
+\begin{itemize}
+  \item Fixed volatility cache initialisation (early return prevented cache fields) --- commit \texttt{ed7f133}.
+  \item Fixed unit-test package shadowing (\texttt{services} name collision) --- commit \texttt{876b1d0}.
+  \item Hardened CI/GX suite export and validation across versions --- commits \texttt{0d5997f}..\texttt{0f4aad2}.
+\end{itemize}
+
+\item \textbf{Construct an appropriate CI pipeline for the software}\\
+\textbf{CI pipeline:} GitHub Actions workflow \texttt{.github/workflows/ci.yml} runs pytest with coverage and exports GX suite documentation. It uploads \texttt{coverage.xml}, \texttt{htmlcov/}, and \texttt{docs/data\_validation/gx\_suites/}.
+
+\item\textbf{Automate some aspects of the testing}\\
+\textbf{Automation strategy (lecture-aligned):} automate repetitive execution and measurement (unit/integration/perf measurement, coverage, suite exports) while restricting heavy/optional dependencies (FinBERT disabled in CI via env flag; IB not required). This maximises cost-effectiveness and visibility.
+
+\item \textbf{Demonstrate the CI pipeline functions as expected}\\
+\textbf{Evidence:} green CI runs + downloadable artefacts. Local reproducibility commands are documented in \texttt{docs/how\_to\_run.md}.
 \end{enumerate}
 \end{enumerate}
 \end{document}
