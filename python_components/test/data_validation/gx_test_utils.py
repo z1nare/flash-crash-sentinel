@@ -19,18 +19,18 @@ def build_validator_from_df(df, suite_name: str):
     """
     import great_expectations as ge
     try:
-        from great_expectations.exceptions import DataContextError  # type: ignore
-    except Exception:  # pragma: no cover
-        DataContextError = Exception  # type: ignore[misc,assignment]
+        from great_expectations.exceptions import DataContextError  
+    except Exception:  
+        DataContextError = Exception  
 
     errors: List[Tuple[str, Exception]] = []
 
     # 1) Prefer PandasDataset (legacy GE). Many newer GE versions removed this module.
     try:
         try:
-            from great_expectations.dataset import PandasDataset  # type: ignore
+            from great_expectations.dataset import PandasDataset  
         except Exception:
-            from great_expectations.dataset.pandas_dataset import PandasDataset  # type: ignore
+            from great_expectations.dataset.pandas_dataset import PandasDataset 
 
         ds = PandasDataset(df)
         try:

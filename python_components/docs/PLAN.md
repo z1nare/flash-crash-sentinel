@@ -1,11 +1,18 @@
-# Test Strategy: RiskBeacon
+# RiskBeacon Test Plan (auditable LO2 evidence)
 
-**Author:** [Your Name]
-**Project:** RiskBeacon - Real-Time Market Risk Monitoring System
-**Date:** January 2026
+**Author:** Arsenii Harbar  
+**Project:** RiskBeacon (Real-Time Market Risk Monitoring System)  
+**Date:** January 2026  
+**Repo evidence:** tests live under `python_components/test/…`, requirements under `python_components/docs/requirements.md`, CI under `.github/workflows/ci.yml`.
 
 ## 1. Introduction
-This document outlines the testing strategy for RiskBeacon, an institutional-grade risk monitoring system. The strategy moves beyond standard functional verification to include advanced techniques suitable for financial software, including **Property-Based Testing** for quantitative metrics, **Mutation Testing** for test suite robustness, and **Metamorphic Testing** for the Machine Learning components.
+This test plan operationalises LO1 requirements for RiskBeacon into an auditable set of test activities and evidence. It is intentionally **requirements-driven** (verification), but also includes **fitness-for-purpose validation** (dashboard usefulness) and process monitoring (visibility).
+
+**Strategy vs plan (lecture alignment):**
+- **Strategy (slowly evolving organisational asset):** CI automation + conventions (GitHub Actions workflow `.github/workflows/ci.yml`, test folder conventions, pinned dev deps).
+- **Plan (project-specific, evolves quickly):** this document + the test inventory + the “plan evolution” section tied to real defects and commits.
+
+**Stakeholders and risks (context):** the primary stakeholder is a user monitoring market stability (student/trader/risk analyst). High-risk areas are correctness of quantitative metrics (VPIN/vol), robustness to malformed CSVs, external dependency failures (IB), and performance under tick load.
 
 ## 2. Testing Pyramid & Scope
 
@@ -13,7 +20,7 @@ This document outlines the testing strategy for RiskBeacon, an institutional-gra
 * **Scope:** Individual mathematical functions (VPIN, Yang-Zhang Volatility) and data parsing logic.
 * **Tools:** `pytest`
 * **Distinction Approach:**
-    * [cite_start]**Math Verification:** Verify Equation (2) (VPIN) [cite: 85] [cite_start]and Equation (3) (Yang-Zhang) [cite: 87] against manual calculations in Excel/Spreadsheets to ensure implementation correctness.
+    * **Math verification (redundancy):** invariants (Hypothesis) + deterministic unit tests over the same services.
     * **Boundary Analysis:** Test behavior when trade volume is zero (division by zero protection in VPIN formula).
 
 ### 2.2 Integration Testing (Mocking Strategy)
@@ -28,40 +35,32 @@ This document outlines the testing strategy for RiskBeacon, an institutional-gra
     * **Goal:** Ensure the system degrades gracefully without crashing the Dashboard when the data feed is interrupted.
 
 ### 2.3 System Testing (End-to-End)
-* [cite_start]**Scope:** The full data pipeline from `POST /api/tick` to the Streamlit Dashboard update[cite: 63].
+* **Scope:** The full data pipeline from `POST /api/tick` → CSV persistence → metric computation → plots/dashboard.
 * **Tools:** `TestClient` (FastAPI), potentially Selenium/Playwright for Streamlit.
 
 ### 2.4 Test inventory (repo evidence pointers)
-This section enumerates the **tests and evidence that already exist** in this repository, as well as the **planned tests** that are referenced in LO1 traceability.
+This section enumerates the **tests and evidence that exist** in this repository and maps them to the LO1 requirements set (`docs/requirements.md`).
 
-#### Existing tests (already implemented)
-* **Great Expectations (data validation, batch-based via Data Context):**
-    * Market suite definition: `test/data_validation/gx_suites.py` (`apply_market_suite`)
-    * Sentiment suite definition: `test/data_validation/gx_suites.py` (`apply_sentiment_suite`)
-    * Market validation test (head+tail batches per ticker CSV): `test/data_validation/test_gx_market_data.py`
-    * Sentiment validation test (first+last batch): `test/data_validation/test_gx_sentiment_data.py`
-    * Convenience runner (runs GX tests + exports suites): `test/data_validation/run_data_validation.py`
-    * Suite export (human-readable JSON + summary): `scripts/export_gx_suites.py`
-* **MLOps (MLflow smoke + registry + signature):**
-    * MLflow + sklearn model logging, signature, registry + reload: `test/mlops/test_mlflow_tracking.py`
-* **Test runner configuration:**
-    * pytest discovery config for `test/`: `pytest.ini`
-    * Dev dependencies: `requirements-dev.txt`
+#### Inventory table (auditable)
 
-#### Planned tests (mapped from LO1 requirements)
-The following are planned tests and will be added incrementally (see LO1 traceability mapping in `docs/requirements_to_tests.md`):
-* **Quant unit + property tests (Hypothesis):**
-    * `test/unit_testing/Quant_services/test_vpin_invariants.py`
-    * `test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py`
-* **System/integration tests (FastAPI TestClient):**
-    * `test/integration_testing/test_api_tick_persists_csv.py`
-    * `test/integration_testing/test_api_plot_generation.py`
-* **Performance tests:**
-    * `test/integration_testing/test_perf_api_tick_latency.py` (RB-REQ-16)
-    * `test/integration_testing/test_perf_plot_generation_time.py` (RB-REQ-17)
-* **Backtesting / time-series evaluation tests:**
-    * Strategy/backtest planning: `test/backtesting/backtest.py`
-    * Time-series split/no look-ahead evidence (planned): `test/backtesting/test_time_series_split.py`
+| Test type | Purpose | Tooling | Evidence (file paths) | Requirements covered (examples) |
+|---|---|---|---|---|
+| Unit (example-based) | Correctness + regression for services | `pytest` | `test/unit_testing/service_modules/*` | RB-REQ-06/07/09 (via service behaviour) |
+| Property-based | Quant invariants on generated inputs | `hypothesis` | `test/unit_testing/Quant_services/test_vpin_invariants.py`, `test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py` | RB-REQ-06/07 |
+| Integration (API) | Verify endpoint behaviour + filesystem effects | `fastapi.testclient` | `test/integration_testing/test_api_tick_persists_csv.py`, `test/integration_testing/test_api_plot_generation.py` | RB-REQ-01/04/14 |
+| Performance (measure-only) | Latency/time evidence | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
+| Data validation | Schema + invariants on datasets | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 (+ data quality evidence) |
+| MLOps | Reproducibility artefacts + signature | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
+| CI automation | Repeatability + visibility | GitHub Actions | `.github/workflows/ci.yml` (repo root) | LO5 evidence; supports all |
+
+#### CI evidence artefacts (visibility)
+The CI workflow uploads:
+- coverage: `coverage.xml`, `htmlcov/`
+- GX suite export docs: `docs/data_validation/gx_suites/`
+
+#### Planned extensions (explicitly out-of-scope for this iteration)
+- Backtesting/time-series split tests (RB-REQ-11): `test/backtesting/backtest.py` is a placeholder; `test/backtesting/test_time_series_split.py` is planned.
+- Metamorphic regime tests (RB-REQ-10): planned if time permits.
 
 ---
 
@@ -91,15 +90,40 @@ This section lists **concrete code changes** made to improve testability and rob
 
 ---
 
-## 4. Advanced Testing Techniques (Distinction Evidence)
+## 4. Risk register (LO2 monitoring + contingency)
+
+| Risk | Likelihood | Impact | Mitigation | Test hook / evidence |
+|---|---:|---:|---|---|
+| IB not running / wrong port | High | Medium | Feature-flag + graceful degradation; troubleshooting script | `ib_troubleshoot.py`, `/api/ib/*` endpoints |
+| IB market data permissions | Medium | Medium | Document limitation; fall back to historical | `ib_troubleshoot.py` logs; dashboard messaging |
+| Malformed/duplicated CSV columns | High | High | Normalize columns on load; normalization script | `services/plotService.py`, `normalize_historical_data.py` |
+| Model degeneracy (regime always crash) | Medium | High | VPIN heuristic fix; rule fallback | `services/vpin_service.py`, `REGIME_MODE=rule` |
+| Heavy deps break CI (FinBERT/torch) | High | High | Disable via env var in CI | `.github/workflows/ci.yml`, `services/sentimentService.py` |
+| Performance regressions (tick latency) | Medium | High | Perf measurement tests; remove redundant CSV IO | `test/integration_testing/test_perf_*`, `services/vol_service.py` |
+| Great Expectations version mismatch | Medium | Medium | Pin dev deps; export suites in CI | `requirements-dev.txt`, `scripts/export_gx_suites.py` |
+| Large datasets not in repo | High | Medium | CI uses synthetic export; tests use temp data | `scripts/export_gx_suites.py`, TestClient tests |
+
+---
+
+## 5. Process monitoring (visibility)
+
+Weekly metrics (evidence-backed):
+- **CI pass rate** (GitHub Actions)
+- **Coverage % + trend** (`coverage.xml`, `htmlcov/`)
+- **Open defects list** (GitHub Issues or `docs/KNOWN_ISSUES.md` if used)
+- **Performance**: `/api/tick` median/p95; plot generation time (printed by perf tests)
+
+---
+
+## 6. Advanced Testing Techniques (Distinction Evidence)
 
 ### 4.1 Property-Based Testing (Hypothesis)
 * **Rationale:** Financial metrics must adhere to mathematical invariants regardless of input data. Standard example-based tests are insufficient to cover the infinite state space of market prices.
 * **Tool:** `hypothesis`
-* **Implementation Plan:**
+* **Implemented evidence:**
     * **Invariant 1 (Volatility):** For any sequence of High/Low/Open/Close prices generated, the Yang-Zhang volatility $\sigma^2_{YZ}$ must always be $\geq 0$.
-    * [cite_start]**Invariant 2 (VPIN):** The VPIN metric must always fall within the range $[0, 1]$, regardless of buy/sell volume distribution[cite: 85].
-    * **Invariant 3 (Crash Preservation):** If the input stream contains `NaN` or `Infinite` values, the system must handle them (raise specific error or filter) rather than returning a 500 Server Error.
+    * **Invariant 2 (VPIN):** VPIN must always be in the range $[0, 1]$.
+    * Evidence: `test/unit_testing/Quant_services/*`
 
 ### 4.2 Mutation Testing
 * **Rationale:** To quantitatively measure the quality of the test suite (Yield). We must ensure that our tests actually fail if the underlying logic is broken.
@@ -118,16 +142,14 @@ This section lists **concrete code changes** made to improve testability and rob
 
 ---
 
-## 5. CI/CD Pipeline Automation (planned)
+## 7. CI/CD Pipeline Automation (implemented LO5 evidence)
 
-* **Platform:** GitHub Actions / GitLab CI
-* **Workflow:**
-    1.  **Static Analysis:** `ruff` (linting) and `bandit` (security scan for API keys).
-    2.  **Unit & Integration:** Run `pytest` with coverage.
-    3.  **Threshold Enforcement:** Pipeline fails if Coverage < 85%.
-    4.  **Property Checks:** Run `hypothesis` suite (slower tests).
+* **Platform:** GitHub Actions
+* **Workflow file:** `.github/workflows/ci.yml` (repo root)
+* **Automated steps:** install minimal deps, run pytest with coverage, export GX suite docs, upload artefacts.
+* **Why it matters (lecture alignment):** cost-effective repeatability + visibility; prevents “big bang” integration and makes results auditable.
 
-## 6. Traceability Matrix (LO1 linkage)
+## 8. Traceability Matrix (LO1 linkage)
 RiskBeacon uses an LO1 requirements set `RB-REQ-01..RB-REQ-17` defined in `docs/requirements.md` and mapped to tests in `docs/requirements_to_tests.md`.
 
 Summary table (high-signal examples):
@@ -141,27 +163,27 @@ Summary table (high-signal examples):
 
 ---
 
-## 7. Plan evolution (iterations tied to evidence)
+## 9. Plan evolution (iterations tied to evidence + commit IDs)
 This plan evolved based on defects encountered during development and testing:
 
 * **Iteration 1 — Plot failure → schema validation + repair tooling**
     * Observation: plot generation could fail due to duplicate column names after normalization (`VPIN` + `vpin` → duplicated `vpin`).
     * Response: fixed plot loader, added GX schema checks, and added `normalize_historical_data.py` to repair data.
-    * Evidence: `services/plotService.py`, `test/data_validation/*`, `normalize_historical_data.py`, RB-REQ-04/RB-REQ-13/RB-REQ-14.
+    * Evidence: `services/plotService.py`, `test/data_validation/*`, `normalize_historical_data.py` (e.g. commits: `bda8aec`, `0d5997f`).
 
 * **Iteration 2 — IB integration → diagnosable connectivity and graceful degradation**
     * Observation: IB connectivity is environment-dependent (ports, permissions) and should not break the dashboard.
     * Response: implemented IB endpoints + connection settings UI + `ib_troubleshoot.py` and ensured API still works when IB fails.
-    * Evidence: `services/ib_client_service.py`, `api/routes.py`, `frontend/dashboard.py`, `ib_troubleshoot.py`, RB-REQ-15.
+    * Evidence: `services/ib_client_service.py`, `api/routes.py`, `frontend/dashboard.py`, `ib_troubleshoot.py` (e.g. commit: `7fa6ada`).
 
 * **Iteration 3 — Regime/VPIN stability → explainability + fallback mode**
     * Observation: bar-based VPIN classification can saturate; ML regimes can become degenerate when input distributions are pathological.
     * Response: improved VPIN heuristic and added `REGIME_MODE=rule` fallback; strengthened data validation + reproducibility evidence (MLflow).
-    * Evidence: `services/vpin_service.py`, `controllers/ServiceController.py`, `test/mlops/test_mlflow_tracking.py`, RB-REQ-10/RB-REQ-11/RB-REQ-12.
+    * Evidence: `services/vpin_service.py`, `controllers/ServiceController.py`, `test/mlops/test_mlflow_tracking.py` (e.g. commits: `2cceb5c`, `c1cae2d`).
 
 ---
 
-## 8. Evaluation of Limitations (LO4)
+## 10. Evaluation of Limitations (LO4)
 * [cite_start]**Data Drift:** Tests use historical Bloomberg data[cite: 79]. We acknowledge that this does not guarantee future performance (Covariate Shift).
 * **Oracle Limit:** We assume the "Ground Truth" labels in the training set are correct, but market regimes are subjective.
 * [cite_start]**Time-Series Constraint:** Standard K-Fold cross-validation was used[cite: 93], but Time-Series Split is more appropriate for backtesting to prevent look-ahead bias. This is a noted limitation in the current test plan.
