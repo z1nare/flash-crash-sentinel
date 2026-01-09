@@ -135,6 +135,7 @@ Coverage (\texttt{api/controllers/services}) & tracked & 48\% total (pytest-cov)
   \item Fixed volatility cache initialisation (early return prevented cache fields) - commit \texttt{ed7f133}.
   \item Fixed unit-test package shadowing (\texttt{services} name collision) - commit \texttt{876b1d0}.
   \item Hardened CI/GX suite export and validation across versions - commits \texttt{0d5997f}..\texttt{0f4aad2}.
+  \item \textbf{Imperfections discovered by testing (kept as non-breaking evidence):} plot generation produces ticker-prefixed filenames (e.g., \texttt{TEST\_1\_...html}) while \texttt{GET /api/plots/view/\{plot\_name\}} and \texttt{GET /api/plots/list} only accept non-prefixed names. This mismatch is captured as \texttt{xfail} integration tests in \texttt{test/integration\_testing/test\_api\_routes\_more\_coverage.py}, providing auditable evidence of a discovered design defect without breaking CI.
 \end{itemize}
 
 \item \textbf{Construct an appropriate CI pipeline for the software}\\
