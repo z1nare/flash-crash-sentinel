@@ -88,6 +88,27 @@ $env:RISKBEACON_DISABLE_FINBERT="true"
 python -m pytest -q test\mlops\test_mlflow_tracking.py -s
 ```
 
+### 4.6 FinBERT / sentiment (heavy, optional)
+
+By default, tests disable FinBERT so your suite is fast and CI-safe. To actually run
+FinBERT locally:
+
+- Ensure runtime deps are installed (`requirements.txt` includes `transformers` + `torch`)
+- Allow model download (first run can be large/slow)
+- Run the smoke test explicitly:
+
+```powershell
+$env:RISKBEACON_DISABLE_FINBERT=""
+$env:RUN_FINBERT_TESTS="true"
+python -m pytest -q test\unit_testing\service_modules\test_finbert_smoke.py -s
+```
+
+Tip: to cache downloads, optionally set:
+
+```powershell
+$env:TRANSFORMERS_CACHE="$PWD\.hf_cache"
+```
+
 ## 5) Coverage evidence (portfolio)
 
 ```powershell
