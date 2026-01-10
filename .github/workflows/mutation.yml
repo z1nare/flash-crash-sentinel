@@ -28,13 +28,25 @@ jobs:
 
       - name: Mutmut (VPIN)
         run: |
-          python -m mutmut run --paths-to-mutate services/vpin_service.py --runner "python -m pytest -q test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
+          rm -rf .mutmut-cache || true
+          cat > setup.cfg <<'EOF'
+          [mutmut]
+          paths_to_mutate=services/vpin_service.py
+          EOF
+          python -m mutmut run --runner "python -m pytest -q test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
           python -m mutmut results > mutmut_results_vpin.txt || true
+          rm -f setup.cfg || true
 
       - name: Mutmut (Volatility)
         run: |
-          python -m mutmut run --paths-to-mutate services/vol_service.py --runner "python -m pytest -q test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
+          rm -rf .mutmut-cache || true
+          cat > setup.cfg <<'EOF'
+          [mutmut]
+          paths_to_mutate=services/vol_service.py
+          EOF
+          python -m mutmut run --runner "python -m pytest -q test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
           python -m mutmut results > mutmut_results_vol.txt || true
+          rm -f setup.cfg || true
 
       - name: Collect summary
         run: |
