@@ -34,6 +34,8 @@ jobs:
           paths_to_mutate=services/vpin_service.py
           EOF
           python -m mutmut run --help || true
+          # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
+          export PYTHONPATH="$PWD/mutants:$PWD"
           export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vpin.txt || true
@@ -47,6 +49,8 @@ jobs:
           paths_to_mutate=services/vol_service.py
           EOF
           python -m mutmut run --help || true
+          # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
+          export PYTHONPATH="$PWD/mutants:$PWD"
           export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vol.txt || true
