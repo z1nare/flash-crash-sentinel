@@ -81,3 +81,9 @@ report/
 
 # ---- API test collections ----
 *postman_collection*.json
+
+# Test artifacts
+coverage.xml
+python_components/coverage.xml
+python_components/htmlcov/
+
