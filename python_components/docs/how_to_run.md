@@ -79,7 +79,9 @@ python -m mutmut run --paths-to-mutate services/vpin_service.py
 python -m mutmut results
 ```
 
-### 4.4 Data validation (Great Expectations)
+Note (Windows): `mutmut` requires the Unix-only `resource` module and does not run on native Windows. Use WSL2 or the manual GitHub Actions workflow (`.github/workflows/mutation.yml`).
+
+### 4.5 Data validation (Great Expectations)
 
 ```powershell
 python -m pytest -q test\data_validation -s
