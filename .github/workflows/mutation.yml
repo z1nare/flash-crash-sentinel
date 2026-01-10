@@ -32,9 +32,9 @@ jobs:
           cat > setup.cfg <<'EOF'
           [mutmut]
           paths_to_mutate=services/vpin_service.py
-          runner=python -m pytest -q test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py
           EOF
           python -m mutmut run --help || true
+          export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vpin.txt || true
           rm -f setup.cfg || true
@@ -45,9 +45,9 @@ jobs:
           cat > setup.cfg <<'EOF'
           [mutmut]
           paths_to_mutate=services/vol_service.py
-          runner=python -m pytest -q test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py
           EOF
           python -m mutmut run --help || true
+          export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vol.txt || true
           rm -f setup.cfg || true
