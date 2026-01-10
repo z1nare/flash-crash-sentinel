@@ -98,7 +98,7 @@ Ticker & normal; lowercase; empty/whitespace \\
 \item\textbf{Evaluation criteria for the adequacy of the testing}\\
 \textbf{Adequacy criteria (lecture-aligned):} coverage (statement/branch proxy via pytest-cov) and requirement traceability (RB-REQ $\rightarrow$ tests). Yield is planned via mutation testing (\texttt{mutmut}) on high-risk quant services (\texttt{services/vpin\_service.py}, \texttt{services/vol\_service.py}).
 
-\\textbf{Results evidence:} local execution produced \textbf{43 passed, 2 skipped} tests (GX skipped on Windows when GE runtime cannot construct an ephemeral validator; CI remains the auditable source for exported GX suites). Coverage output (\texttt{coverage.xml}, \texttt{htmlcov/}), perf test prints (median/p95, elapsed time), and CI artefact uploads (\texttt{.github/workflows/ci.yml}) provide reproducible evidence. Data validation produces suite exports (human-readable JSON + summary).
+\\textbf{Results evidence:} local execution produced \textbf{58 passed, 2 skipped, 3 xfailed} tests (GX skipped on Windows when GE runtime cannot construct an ephemeral validator; CI remains the auditable source for exported GX suites). \textbf{xfailed} tests are deliberate, non-breaking evidence of discovered imperfections / future requirements (e.g., plot filename/endpoint mismatch) captured as executable checks. Coverage output (\texttt{coverage.xml}, \texttt{htmlcov/}), perf test prints (median/p95, elapsed time), and CI artefact uploads (\texttt{.github/workflows/ci.yml}) provide reproducible evidence. Data validation produces suite exports (human-readable JSON + summary).
 
 
 \item \textbf{Evaluation of the results}\\
@@ -120,7 +120,7 @@ Ticker & normal; lowercase; empty/whitespace \\
 \hline
 \texttt{/api/tick} median/p95 & $<50$ms / $<150$ms & 14.16ms / 19.83ms (n=75) \\
 Plot generation time (3000 rows) & $<300$s & 0.82s (3000 rows) \\
-Coverage (\texttt{api/controllers/services}) & tracked & 48\% total (pytest-cov) \\
+Coverage (\texttt{api/controllers/services}) & tracked & 52\% total (pytest-cov) \\
 \end{tabular}
 \end{center}
 

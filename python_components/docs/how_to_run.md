@@ -69,6 +69,16 @@ python -m pytest -s test\integration_testing\test_perf_api_tick_latency.py
 python -m pytest -s test\integration_testing\test_perf_plot_generation_time.py
 ```
 
+### 4.4 Mutation testing (yield)
+
+Mutation testing estimates test yield by injecting small code changes (mutants) and checking whether tests detect them.
+See `docs/mutation_testing.md` for the full procedure and reporting guidance.
+
+```powershell
+python -m mutmut run --paths-to-mutate services/vpin_service.py
+python -m mutmut results
+```
+
 ### 4.4 Data validation (Great Expectations)
 
 ```powershell
