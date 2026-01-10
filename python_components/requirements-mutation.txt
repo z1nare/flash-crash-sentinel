@@ -1,0 +1,9 @@
+﻿# Minimal deps for mutation testing (Linux/CI). Avoids huge packages like torch/transformers.
+pytest>=7.4
+hypothesis>=6.98
+mutmut>=2.4
+numpy>=1.26,<2.0
+pandas>=2.0
+pydantic>=2.0
+requests>=2.0
+openpyxl>=3.1
