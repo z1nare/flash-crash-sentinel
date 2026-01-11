@@ -1,9 +1,21 @@
 from collections import deque
-from typing import Optional
-from backend.models.domain import TickerDTO
+from typing import Optional, Protocol, TYPE_CHECKING
 import numpy as np
 import sys
 import os
+
+# Import DTO only for type-checking; runtime code is duck-typed.
+if TYPE_CHECKING:  # pragma: no cover
+    from backend.models.domain import TickerDTO  # noqa: F401
+
+
+class TickerLike(Protocol):
+    ticker: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
 
 # Add utils to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +57,7 @@ class VpinService:
         # State dictionary: {ticker_symbol: _VpinState}
         self.state = {}
 
-    def process_tick(self, ticker_dto: TickerDTO) -> Optional[float]:
+    def process_tick(self, ticker_dto: "TickerLike") -> Optional[float]:
         """
         Orchestrates VPIN calculation:
         1. Classifies trade direction (Buy/Sell).

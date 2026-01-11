@@ -1,13 +1,25 @@
 import numpy as np
 import pandas as pd
-from backend.models.domain import TickerDTO
 import os
 from datetime import datetime, date
-from typing import Optional, Dict
+from typing import Optional, Dict, Protocol, TYPE_CHECKING
 
 from utils.logger import get_service_logger
 
 logger = get_service_logger("vol")
+
+if TYPE_CHECKING:  # pragma: no cover
+    from backend.models.domain import TickerDTO  # noqa: F401
+
+
+class TickerLike(Protocol):
+    ticker: str
+    timestamp: object
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int
 
 class VolatilityService:
     def __init__(self, csv_path: str = None):
@@ -34,7 +46,7 @@ class VolatilityService:
         self._current_day_ohlc: Optional[Dict[str, float]] = None
         self._daily_df: Optional[pd.DataFrame] = None
         
-    def process_tick(self, ticker_dto: TickerDTO) -> float:
+    def process_tick(self, ticker_dto: "TickerLike") -> float:
         """
         Process a new tick and calculate volatility using a rolling daily window.
 
