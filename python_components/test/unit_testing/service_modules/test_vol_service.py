@@ -4,13 +4,12 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
-from backend.models.domain import TickerDTO
 from services.vol_service import VolatilityService
 
 
-def _tick(day_offset: int, *, open_: float, high: float, low: float, close: float) -> TickerDTO:
+def _tick(day_offset: int, *, open_: float, high: float, low: float, close: float) -> SimpleNamespace:
     ts = datetime(2026, 1, 1, 9, 30) + timedelta(days=day_offset)
-    return TickerDTO(
+    return SimpleNamespace(
         event_type="TICK",
         timestamp=ts,
         ticker="TEST",

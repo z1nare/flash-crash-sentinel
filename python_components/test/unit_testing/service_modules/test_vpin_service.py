@@ -1,8 +1,5 @@
 from datetime import datetime
-
-import pytest
-
-from backend.models.domain import TickerDTO
+from types import SimpleNamespace
 from services.vpin_service import VpinService
 
 
@@ -14,8 +11,8 @@ def _tick(
     low: float = 99.0,
     close: float = 100.0,
     volume: int = 100_000,
-) -> TickerDTO:
-    return TickerDTO(
+) -> SimpleNamespace:
+    return SimpleNamespace(
         event_type="TICK",
         timestamp=datetime(2026, 1, 1, 9, 30),
         ticker=ticker,

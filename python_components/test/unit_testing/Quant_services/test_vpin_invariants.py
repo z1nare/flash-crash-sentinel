@@ -1,16 +1,16 @@
 import math
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from backend.models.domain import TickerDTO
 from services.vpin_service import VpinService
 
 
-def _ticker_dto(ticker: str, ts: datetime, o: float, h: float, l: float, c: float, v: int) -> TickerDTO:
-    return TickerDTO(
+def _ticker_dto(ticker: str, ts: datetime, o: float, h: float, l: float, c: float, v: int) -> SimpleNamespace:
+    return SimpleNamespace(
         event_type="TICK",
         timestamp=ts,
         ticker=ticker,
