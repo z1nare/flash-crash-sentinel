@@ -35,13 +35,14 @@ jobs:
           also_copy=
               backend
               utils
+              pytest.ini
           EOF
           python -m mutmut run --help || true
           # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
           export PYTHONPATH="$PWD/mutants:$PWD"
           python -c "import importlib.util; print('PYTHONPATH=', __import__('os').environ.get('PYTHONPATH')); print('backend spec:', importlib.util.find_spec('backend'))"
           python -c "import backend.models.domain as d; print('backend import ok:', d.TickerDTO)"
-          export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
+          export PYTEST_ADDOPTS="-q --rootdir=$PWD/mutants --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vpin.txt || true
           rm -f setup.cfg || true
@@ -55,13 +56,14 @@ jobs:
           also_copy=
               backend
               utils
+              pytest.ini
           EOF
           python -m mutmut run --help || true
           # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
           export PYTHONPATH="$PWD/mutants:$PWD"
           python -c "import importlib.util; print('PYTHONPATH=', __import__('os').environ.get('PYTHONPATH')); print('backend spec:', importlib.util.find_spec('backend'))"
           python -c "import backend.models.domain as d; print('backend import ok:', d.TickerDTO)"
-          export PYTEST_ADDOPTS="-q --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
+          export PYTEST_ADDOPTS="-q --rootdir=$PWD/mutants --ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py"
           python -m mutmut run
           python -m mutmut results > mutmut_results_vol.txt || true
           rm -f setup.cfg || true
