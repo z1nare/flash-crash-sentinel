@@ -34,6 +34,7 @@ jobs:
           paths_to_mutate=services/vpin_service.py
           also_copy=
               backend
+              services
               utils
               pytest.ini
           EOF
@@ -55,6 +56,7 @@ jobs:
           paths_to_mutate=services/vol_service.py
           also_copy=
               backend
+              services
               utils
               pytest.ini
           EOF
