@@ -37,8 +37,8 @@ jobs:
               backend
               services
               utils
-              test/unit_testing/service_modules/test_vpin_service.py
-              test/unit_testing/Quant_services/test_vpin_invariants.py
+              test/unit_testing/service_modules
+              test/unit_testing/Quant_services
               test/conftest.py
           EOF
           # Ensure imports resolve inside the mutmut sandbox
