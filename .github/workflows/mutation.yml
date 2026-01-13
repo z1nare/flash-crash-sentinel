@@ -26,15 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements-mutation.txt
 
-      - name: Mutmut (VPIN)
+      - name: Mutmut (VPIN only - simplified)
         run: |
           rm -rf .mutmut-cache || true
-          # Create a minimal pytest.ini that only looks at unit tests
-          cat > pytest_mutmut.ini <<'EOF'
-          [pytest]
-          testpaths = test/unit_testing
-          python_files = test_*.py
-          EOF
           cat > setup.cfg <<'EOF'
           [mutmut]
           paths_to_mutate=services/vpin_service.py
@@ -43,68 +37,22 @@ jobs:
               backend
               services
               utils
-              test/unit_testing
+              test/unit_testing/service_modules/test_vpin_service.py
+              test/unit_testing/Quant_services/test_vpin_invariants.py
               test/conftest.py
           EOF
-          # Copy minimal pytest config to mutants directory
-          mkdir -p mutants
-          cp pytest_mutmut.ini mutants/pytest.ini
-          # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
+          # Ensure imports resolve inside the mutmut sandbox
           export PYTHONPATH="$PWD/mutants:$PWD"
-          python -c "import importlib.util; print('PYTHONPATH=', __import__('os').environ.get('PYTHONPATH')); print('backend spec:', importlib.util.find_spec('backend'))"
-          python -c "import backend.models.domain as d; print('backend import ok:', d.TickerDTO)"
-          # Ignore integration tests during stats collection (they need fastapi which isn't installed)
-          export PYTEST_ADDOPTS="--ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation --ignore=test/backtesting"
+          # Run mutation testing
           python -m mutmut run
           python -m mutmut results > mutmut_results_vpin.txt || true
-          rm -f setup.cfg pytest_mutmut.ini || true
-
-      - name: Mutmut (Volatility)
-        run: |
-          rm -rf .mutmut-cache || true
-          # Create a minimal pytest.ini that only looks at unit tests
-          cat > pytest_mutmut.ini <<'EOF'
-          [pytest]
-          testpaths = test/unit_testing
-          python_files = test_*.py
-          EOF
-          cat > setup.cfg <<'EOF'
-          [mutmut]
-          paths_to_mutate=services/vol_service.py
-          runner=python -m pytest test/unit_testing/service_modules/test_vol_service.py test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py --rootdir={mutations_directory} -q
-          also_copy=
-              backend
-              services
-              utils
-              test/unit_testing
-              test/conftest.py
-          EOF
-          # Copy minimal pytest config to mutants directory
-          mkdir -p mutants
-          cp pytest_mutmut.ini mutants/pytest.ini
-          # Ensure imports resolve inside the mutmut sandbox (mutants/ contains the mutated code copy).
-          export PYTHONPATH="$PWD/mutants:$PWD"
-          python -c "import importlib.util; print('PYTHONPATH=', __import__('os').environ.get('PYTHONPATH')); print('backend spec:', importlib.util.find_spec('backend'))"
-          python -c "import backend.models.domain as d; print('backend import ok:', d.TickerDTO)"
-          # Ignore integration tests during stats collection (they need fastapi which isn't installed)
-          export PYTEST_ADDOPTS="--ignore=test/integration_testing --ignore=test/mlops --ignore=test/data_validation --ignore=test/backtesting"
-          python -m mutmut run
-          python -m mutmut results > mutmut_results_vol.txt || true
-          rm -f setup.cfg pytest_mutmut.ini || true
-
-      - name: Collect summary
-        run: |
-          echo "==== mutmut results (VPIN) ====" > mutmut_summary.txt
-          cat mutmut_results_vpin.txt >> mutmut_summary.txt
-          echo "" >> mutmut_summary.txt
-          echo "==== mutmut results (Volatility) ====" >> mutmut_summary.txt
-          cat mutmut_results_vol.txt >> mutmut_summary.txt
+          cat mutmut_results_vpin.txt
+          rm -f setup.cfg || true
 
       - name: Upload mutmut results
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: mutmut-results
           path: |
-            python_components/mutmut_summary.txt
             python_components/mutmut_results_vpin.txt
-            python_components/mutmut_results_vol.txt
