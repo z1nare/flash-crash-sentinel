@@ -30,17 +30,22 @@ jobs:
         run: |
           rm -rf .mutmut-cache || true
           # Temporarily rename pytest.ini to avoid conflicts
-          mv pytest.ini pytest.ini.backup || true
-          # Create minimal pytest.ini for mutmut
+          mv pytest.ini pytest.ini.backup 2>/dev/null || true
+          # Create minimal pytest.ini for mutmut that allows test discovery
           cat > pytest.ini <<'EOF'
           [pytest]
           testpaths = test/unit_testing/service_modules test/unit_testing/Quant_services
           python_files = test_*.py
+          python_classes = Test*
+          python_functions = test_*
+          addopts = -v
           EOF
+          # Verify pytest can discover tests before mutmut runs
+          python -m pytest --collect-only test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py || echo "Pytest collection warning (may still work)"
           cat > setup.cfg <<'EOF'
           [mutmut]
           paths_to_mutate=services/vpin_service.py
-          runner=python -m pytest test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py --rootdir={mutations_directory}
+          runner=python -m pytest test/unit_testing/service_modules/test_vpin_service.py test/unit_testing/Quant_services/test_vpin_invariants.py --rootdir={mutations_directory} -v
           also_copy=
               backend
               services
@@ -51,12 +56,14 @@ jobs:
           EOF
           # Ensure imports resolve inside the mutmut sandbox
           export PYTHONPATH="$PWD/mutants:$PWD"
-          # Run mutation testing
-          python -m mutmut run || echo "Mutation testing failed - see logs above"
+          # Run mutation testing (allow failure but capture output)
+          python -m mutmut run 2>&1 | tee mutmut_run.log || echo "Mutation testing completed with warnings"
           python -m mutmut results > mutmut_results_vpin.txt 2>&1 || echo "No results available" > mutmut_results_vpin.txt
+          echo "=== Mutation Testing Summary ===" >> mutmut_results_vpin.txt
+          echo "Mutants generated: $(python -m mutmut list | wc -l)" >> mutmut_results_vpin.txt || echo "Mutants generated: (count unavailable)" >> mutmut_results_vpin.txt
           cat mutmut_results_vpin.txt
           # Restore original pytest.ini
-          mv pytest.ini.backup pytest.ini || true
+          mv pytest.ini.backup pytest.ini 2>/dev/null || true
           rm -f setup.cfg || true
 
       - name: Upload mutmut results
@@ -66,3 +73,4 @@ jobs:
           name: mutmut-results
           path: |
             python_components/mutmut_results_vpin.txt
+            python_components/mutmut_run.log
