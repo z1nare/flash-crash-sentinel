@@ -29,10 +29,10 @@ jobs:
       - name: Mutmut (VPIN)
         run: |
           rm -rf .mutmut-cache || true
-          # Create a minimal pytest.ini without -q to avoid duplicate flags
+          # Create a minimal pytest.ini that only looks at unit tests
           cat > pytest_mutmut.ini <<'EOF'
           [pytest]
-          testpaths = test
+          testpaths = test/unit_testing
           python_files = test_*.py
           EOF
           cat > setup.cfg <<'EOF'
@@ -43,7 +43,8 @@ jobs:
               backend
               services
               utils
-              test
+              test/unit_testing
+              test/conftest.py
           EOF
           # Copy minimal pytest config to mutants directory
           mkdir -p mutants
@@ -60,10 +61,10 @@ jobs:
       - name: Mutmut (Volatility)
         run: |
           rm -rf .mutmut-cache || true
-          # Create a minimal pytest.ini without -q to avoid duplicate flags
+          # Create a minimal pytest.ini that only looks at unit tests
           cat > pytest_mutmut.ini <<'EOF'
           [pytest]
-          testpaths = test
+          testpaths = test/unit_testing
           python_files = test_*.py
           EOF
           cat > setup.cfg <<'EOF'
@@ -74,7 +75,8 @@ jobs:
               backend
               services
               utils
-              test
+              test/unit_testing
+              test/conftest.py
           EOF
           # Copy minimal pytest config to mutants directory
           mkdir -p mutants
