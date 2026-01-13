@@ -121,12 +121,12 @@ Ticker & normal; lowercase; empty/whitespace \\
 \hline
 \texttt{/api/tick} median/p95 & $<50$ms / $<150$ms & 14.16ms / 19.83ms (n=75) \\
 Plot generation time (3000 rows) & $<300$s & 0.82s (3000 rows) \\
-Coverage (\texttt{api/controllers/services}) & tracked & 75\% local / 75\% CI (pytest-cov) \\
+Coverage (\texttt{api/controllers/services}) & tracked & 76\% local / 75\% CI (pytest-cov) \\
 \end{tabular}
 \end{center}
 
 \item \textbf{Discussion of what would be necessary to achieve the target level}\\
-\textbf{Current achievement:} coverage reached 75\% overall with \texttt{api/routes.py} achieving 80\% target. \texttt{services/sentimentService.py} reached 86\% coverage (up from 61\%) through comprehensive FinBERT loading path tests. \texttt{controllers/ServiceController.py} improved to 69\% (up from 66\%) via initialization and exception handling tests. \textbf{To reach 80\% overall:} target remaining gaps in \texttt{services/vol\_service.py} (66\%), \texttt{services/hmm\_regime\_service.py} (65\%), and \texttt{controllers/ServiceController.py} (69\%) with additional edge case and error path tests. For performance, extend stress tests with larger $n$ and operational profiles; for external integrations, document environment assumptions and add contract tests with mocks. \textbf{Backtesting achieved:} time-series split validation is implemented with reproducible train/test splits, sentiment integration, and risk management, providing evidence of strategy reliability assessment.
+\textbf{Current achievement:} coverage reached 76\% overall (local) with \texttt{api/routes.py} achieving 80\% target. \texttt{services/sentimentService.py} reached 86\% coverage (up from 61\%) through comprehensive FinBERT loading path tests. \texttt{controllers/ServiceController.py} improved to 67\% via initialization and exception handling tests. \texttt{services/vpin\_service.py} achieved 96\% coverage, demonstrating high-quality test coverage for critical quant logic. \textbf{To reach 80\% overall:} target remaining gaps in \texttt{services/vol\_service.py} (66\%), \texttt{services/hmm\_regime\_service.py} (65\%), and \texttt{controllers/ServiceController.py} (67\%) with additional edge case and error path tests. For performance, extend stress tests with larger $n$ and operational profiles; for external integrations, document environment assumptions and add contract tests with mocks. \textbf{Backtesting achieved:} time-series split validation is implemented with reproducible train/test splits, sentiment integration, and risk management, providing evidence of strategy reliability assessment.
 \end{enumerate}
 \item \textbf{Conduct reviews, inspections, and design and implement automated testing processes} \marginpar{[default 20\%]}
 \begin{enumerate}    
