@@ -51,6 +51,7 @@ This section enumerates the **tests and evidence that exist** in this repository
 | Performance (measure-only) | Latency/time evidence | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
 | Data validation | Schema + invariants on datasets | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 (+ data quality evidence) |
 | MLOps | Reproducibility artefacts + signature | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
+| Backtesting | Time-series validation + strategy reliability | `bt` (Backtrader) | `test/backtesting/research.ipynb` | RB-REQ-11 |
 | CI automation | Repeatability + visibility | GitHub Actions | `.github/workflows/ci.yml` (repo root) | LO5 evidence; supports all |
 
 #### CI evidence artefacts (visibility)
@@ -58,8 +59,10 @@ The CI workflow uploads:
 - coverage: `coverage.xml`, `htmlcov/`
 - GX suite export docs: `docs/data_validation/gx_suites/`
 
+#### Implemented extensions
+- Backtesting/time-series split tests (RB-REQ-11): `test/backtesting/research.ipynb` implements reproducible strategy backtesting with train/test splits (70/30), sentiment integration, stop-loss risk management, and multi-asset portfolio support (AMD, NVDA, TSLA). Evidence: portfolio returns, Sharpe ratios, drawdown analysis, and look-ahead bias prevention.
+
 #### Planned extensions (explicitly out-of-scope for this iteration)
-- Backtesting/time-series split tests (RB-REQ-11): `test/backtesting/backtest.py` is a placeholder; `test/backtesting/test_time_series_split.py` is planned.
 - Metamorphic regime tests (RB-REQ-10): planned if time permits.
 
 ---
