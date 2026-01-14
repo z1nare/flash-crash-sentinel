@@ -19,16 +19,16 @@ This test plan operationalises LO1 requirements for RiskBeacon into an auditable
 ### 2.1 Unit Testing (Foundational)
 * **Scope:** Individual mathematical functions (VPIN, Yang-Zhang Volatility) and data parsing logic.
 * **Tools:** `pytest`
-* **Distinction Approach:**
+* **Testing approach:**
     * **Math verification (redundancy):** invariants (Hypothesis) + deterministic unit tests over the same services.
-    * **Boundary Analysis:** Test behavior when trade volume is zero (division by zero protection in VPIN formula).
+    * **Boundary analysis:** Test behavior when trade volume is zero (division by zero protection in VPIN formula).
 
 ### 2.2 Integration Testing (Mocking Strategy)
 * **Scope:** Interaction between `FastAPI`, `ServiceController`, and the new `InteractiveBrokers` adapter.
 * **Tools:** `pytest-mock`, `unittest.mock`
 * **Strategy:**
-    * [cite_start]**Dependency Injection:** As defined in the architecture[cite: 51], we utilize `RegimeModelInterface` and data provider interfaces.
-    * **Mocking External Feeds:** We mock the Interactive Brokers API to simulate:
+    * **Dependency injection:** The system utilizes `RegimeModelInterface` and data provider interfaces for testability.
+    * **Mocking external feeds:** We mock the Interactive Brokers API to simulate:
         * **Scenario A:** Standard market data stream (Happy Path).
         * **Scenario B:** Network disconnection/timeout (Resilience).
         * **Scenario C:** Malformed packets/Invalid Ticker symbols.
@@ -118,7 +118,7 @@ Weekly metrics (evidence-backed):
 
 ---
 
-## 6. Advanced Testing Techniques (Distinction Evidence)
+## 6. Advanced Testing Techniques
 
 ### 4.1 Property-Based Testing (Hypothesis)
 * **Rationale:** Financial metrics must adhere to mathematical invariants regardless of input data. Standard example-based tests are insufficient to cover the infinite state space of market prices.
@@ -134,7 +134,7 @@ Weekly metrics (evidence-backed):
 * **Implementation Plan:**
     * Run mutation analysis on the `volatility_service.py` and `vpin_service.py` modules.
     * **Target:** Achieve a mutation score > 80% (i.e., kill 80% of generated mutants).
-    * [cite_start]**Example Mutant:** If the code changes `VPIN < 0.5` (Regime 0 boundary) [cite: 90] to `VPIN <= 0.5`, is there a test case specifically at `0.5` that fails?
+    * **Example mutant:** If the code changes `VPIN < 0.5` (Regime 0 boundary) to `VPIN <= 0.5`, is there a test case specifically at `0.5` that fails?
 
 ### 4.3 Metamorphic Testing (Machine Learning)
 * **Rationale:** It is the "Oracle Problem"—we do not always know the "correct" regime for unseen data.
@@ -187,6 +187,6 @@ This plan evolved based on defects encountered during development and testing:
 ---
 
 ## 10. Evaluation of Limitations (LO4)
-* [cite_start]**Data Drift:** Tests use historical Bloomberg data[cite: 79]. We acknowledge that this does not guarantee future performance (Covariate Shift).
-* **Oracle Limit:** We assume the "Ground Truth" labels in the training set are correct, but market regimes are subjective.
-* [cite_start]**Time-Series Constraint:** Standard K-Fold cross-validation was used[cite: 93], but Time-Series Split is more appropriate for backtesting to prevent look-ahead bias. This is a noted limitation in the current test plan.
+* **Data drift:** Tests use historical data. We acknowledge that this does not guarantee future performance (covariate shift).
+* **Oracle limit:** We assume the "ground truth" labels in the training set are correct, but market regimes are subjective.
+* **Time-series constraint:** Time-series split is used for backtesting to prevent look-ahead bias, as documented in the backtesting implementation.
