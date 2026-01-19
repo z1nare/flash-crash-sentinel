@@ -5,201 +5,192 @@
 **Date:** January 2026  
 **Repo:** tests in `python_components/test/…`, requirements in `python_components/docs/requirements.md`, CI in `.github/workflows/ci.yml`.
 
-## 1. Introduction
+## Introduction
 
-This test plan maps the LO1 requirements to actual test activities and evidence for RiskBeacon. The approach is requirements-driven (verification), but I also included validation to make sure the dashboard actually works and monitoring to track how things are going.
+So this test plan basically takes the LO1 requirements and turns them into actual tests and evidence for RiskBeacon. I'm doing requirements-driven testing (verification), but also checking that the dashboard actually works (validation) and tracking metrics to see how things are going (monitoring).
 
 **Strategy vs plan:**
 
-- **Strategy:** The long-term stuff - CI automation, conventions, GitHub Actions workflow (`.github/workflows/ci.yml`), test folder structure, pinned dev dependencies. This changes slowly.
-- **Plan:** This document, the test inventory, and the plan evolution section that tracks real bugs and commits. This changes quickly as we find issues.
+The strategy is the long-term stuff that doesn't change much - CI automation, conventions, the GitHub Actions workflow (`.github/workflows/ci.yml`), test folder structure, pinned dev dependencies. 
 
-**Context:** The main user is someone monitoring market stability (could be a student, trader, or risk analyst). The risky parts are: getting the quant metrics right (VPIN/vol), handling bad CSV data, dealing with IB connection failures, and keeping performance good under load.
+The plan is this document plus the test inventory and the evolution section that tracks real bugs I found and commits. This changes a lot as I discover issues.
 
-## 2. Testing Pyramid & Scope
+**Context:** Main user is someone monitoring market stability - could be a student, trader, or risk analyst. The parts that really matter are: getting VPIN/vol calculations right, handling bad CSV data gracefully, dealing with IB connection failures, and keeping performance decent under load.
 
-### 2.1 Unit Testing
+## Testing Approach
 
-**Scope:** Testing individual math functions (VPIN, Yang-Zhang Volatility) and data parsing logic.
+### Unit Testing
 
-**Tools:** `pytest`
+I'm testing individual math functions like VPIN and Yang-Zhang Volatility, plus data parsing logic.
 
-**Approach:**
-- **Math verification:** Using Hypothesis for invariants plus regular unit tests on the same services. This gives redundancy.
-- **Boundary testing:** Made sure to test edge cases like when trade volume is zero (need to avoid division by zero in VPIN).
+Using `pytest` for this. For the math stuff, I'm using Hypothesis to check invariants plus regular unit tests on the same services - gives me redundancy. Also made sure to test edge cases like when trade volume is zero (gotta avoid division by zero in VPIN).
 
-### 2.2 Integration Testing
+### Integration Testing
 
-**Scope:** Testing how FastAPI, ServiceController, and the InteractiveBrokers adapter work together.
+Testing how FastAPI, ServiceController, and the InteractiveBrokers adapter work together.
 
-**Tools:** `pytest-mock`, `unittest.mock`
+Using `pytest-mock` and `unittest.mock`. The code uses `RegimeModelInterface` and data provider interfaces which makes testing easier. I mock the Interactive Brokers API to test different scenarios:
+- Normal market data stream (happy path)
+- Network disconnection or timeout (need resilience here)
+- Bad packets or invalid ticker symbols
 
-**Strategy:**
-- **Dependency injection:** The code uses `RegimeModelInterface` and data provider interfaces which makes it easier to test.
-- **Mocking IB:** I mock the Interactive Brokers API to test different scenarios:
-  - **Scenario A:** Normal market data stream (happy path)
-  - **Scenario B:** Network disconnection or timeout (need resilience)
-  - **Scenario C:** Bad packets or invalid ticker symbols
-- **Goal:** Make sure the system doesn't crash the dashboard when IB fails.
+Main goal is making sure the system doesn't crash the dashboard when IB fails.
 
-### 2.3 System Testing
+### System Testing
 
-**Scope:** End-to-end testing of the full pipeline: `POST /api/tick` → CSV persistence → metric computation → plots/dashboard.
+End-to-end testing of the full pipeline: `POST /api/tick` → CSV persistence → metric computation → plots/dashboard.
 
-**Tools:** FastAPI `TestClient`, maybe Selenium/Playwright for Streamlit later (didn't get to this).
+Using FastAPI `TestClient` for this. Was thinking about Selenium/Playwright for Streamlit but didn't get to it.
 
-### 2.4 Test Inventory
+## Test Inventory
 
-This section lists the tests and evidence in the repo and maps them to the LO1 requirements (`docs/requirements.md`).
+Here's what tests I actually have and how they map to the LO1 requirements (`docs/requirements.md`):
 
-**Test Inventory Table:**
-
-| Test type | Purpose | Tooling | Evidence (file paths) | Requirements covered |
+| Test type | Purpose | Tooling | Evidence | Requirements |
 |---|---|---|---|---|
-| Unit (example-based) | Correctness + regression for services | `pytest` | `test/unit_testing/service_modules/*` | RB-REQ-06/07/09 |
-| Property-based | Quant invariants on generated inputs | `hypothesis` | `test/unit_testing/Quant_services/test_vpin_invariants.py`, `test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py` | RB-REQ-06/07 |
-| Integration (API) | Verify endpoint behaviour + filesystem effects | `fastapi.testclient` | `test/integration_testing/test_api_tick_persists_csv.py`, `test/integration_testing/test_api_plot_generation.py` | RB-REQ-01/04/14 |
-| Performance | Latency/time measurements | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
-| Data validation | Schema + invariants on datasets | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 |
-| MLOps | Reproducibility artifacts | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
-| Backtesting | Time-series validation + strategy reliability | `bt` (Backtrader) | `test/backtesting/research.ipynb` | RB-REQ-11 |
-| CI automation | Repeatability + visibility | GitHub Actions | `.github/workflows/ci.yml` | LO5 evidence; supports all |
+| Unit | Correctness + regression | `pytest` | `test/unit_testing/service_modules/*` | RB-REQ-06/07/09 |
+| Property-based | Quant invariants | `hypothesis` | `test/unit_testing/Quant_services/test_vpin_invariants.py`, `test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py` | RB-REQ-06/07 |
+| Integration | Endpoint + filesystem | `fastapi.testclient` | `test/integration_testing/test_api_tick_persists_csv.py`, `test/integration_testing/test_api_plot_generation.py` | RB-REQ-01/04/14 |
+| Performance | Latency/time | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
+| Data validation | Schema + invariants | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 |
+| MLOps | Reproducibility | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
+| Backtesting | Time-series validation | `bt` (Backtrader) | `test/backtesting/research.ipynb` | RB-REQ-11 |
+| CI automation | Repeatability | GitHub Actions | `.github/workflows/ci.yml` | LO5 evidence |
 
 **CI Artifacts:**
 
-The CI workflow uploads:
-- Coverage reports: `coverage.xml`, `htmlcov/`
-- GX suite exports: `docs/data_validation/gx_suites/`
+CI workflow uploads coverage reports (`coverage.xml`, `htmlcov/`) and GX suite exports (`docs/data_validation/gx_suites/`).
 
-**What's Implemented:**
+**What I've Done:**
 
-- Backtesting with time-series splits (RB-REQ-11): `test/backtesting/research.ipynb` has strategy backtesting with 70/30 train/test splits, sentiment integration, stop-loss, and multi-asset support (AMD, NVDA, TSLA). Shows portfolio returns, Sharpe ratios, drawdown analysis, and prevents look-ahead bias.
+Backtesting with time-series splits (RB-REQ-11) is in `test/backtesting/research.ipynb`. It does strategy backtesting with 70/30 train/test splits, includes sentiment integration, stop-loss, and supports multiple assets (AMD, NVDA, TSLA). Shows portfolio returns, Sharpe ratios, drawdown analysis, and prevents look-ahead bias.
 
-**What's Not Done Yet:**
+**What I Haven't Done:**
 
-- Metamorphic regime tests (RB-REQ-10): Planned but didn't get to it. Maybe later.
+Metamorphic regime tests (RB-REQ-10) - planned it but ran out of time. Maybe I'll add it later if I have time.
 
+## Code Changes for Testability
 
-## 3. Instrumentation and testability changes (evidence)
-This section lists **concrete code changes** made to improve testability and robustness (instrumentation in the broad sense: logging, defensive parsing, explicit diagnostics, and controllable behavior).
+Made several changes to make things more testable and robust. Added logging, better error handling, diagnostics, and ways to control behavior during testing.
 
-* **Plot pipeline robustness fix (data schema instrumentation):**
-    * Fixed plot generation failure caused by duplicated columns (`VPIN` + `vpin`, `vol` + `volatility`) leading to non-1D column access errors.
-    * Evidence: `services/plotService.py` (deduplicate normalized columns in `load_data`).
-* **CSV normalization and recalculation tooling (diagnostic + repair instrumentation):**
-    * Added a repeatable normalization/recalculation script for historical CSVs (used to repair corrupted/duplicated metric columns and recompute derived metrics).
-    * Evidence: `normalize_historical_data.py`.
-* **Interactive Brokers integration instrumentation:**
-    * Added structured logging and explicit connection status surfaces so failures are diagnosable without breaking the dashboard.
-    * Evidence:
-        * `services/ib_client_service.py` (logs, connection info)
-        * `controllers/ServiceController.py` (IB status + connect overrides)
-        * `api/routes.py` (IB endpoints)
-        * `frontend/dashboard.py` (IB connection settings UI)
-        * Local troubleshooting tool: `ib_troubleshoot.py`
-* **VPIN/regime pipeline stability improvements (testability of quantitative behavior):**
-    * Improved VPIN bar-based classification to avoid saturation and to keep outputs meaningful for downstream regime detection.
-    * Added a rule-based regime mode (`REGIME_MODE=rule`) for explainability and as a fallback when model assumptions fail.
-    * Evidence:
-        * `services/vpin_service.py`
-        * `controllers/ServiceController.py`
+**Plot pipeline fix:**
 
----
+Plot generation was failing because of duplicate column names after normalization. Had `VPIN` + `vpin` which ended up as duplicate `vpin`. This caused non-1D column access errors. Fixed it in `services/plotService.py` by deduplicating normalized columns in `load_data`.
 
-## 4. Risk register (LO2 monitoring + contingency)
+**CSV normalization tool:**
 
-| Risk | Likelihood | Impact | Mitigation | Test hook / evidence |
-|---|---:|---:|---|---|
-| IB not running / wrong port | High | Medium | Feature-flag + graceful degradation; troubleshooting script | `ib_troubleshoot.py`, `/api/ib/*` endpoints |
-| IB market data permissions | Medium | Medium | Document limitation; fall back to historical | `ib_troubleshoot.py` logs; dashboard messaging |
+Created `normalize_historical_data.py` to fix corrupted CSVs. It repairs duplicated metric columns and recomputes derived metrics. Handy for cleaning up old data.
+
+**Interactive Brokers stuff:**
+
+Added logging and connection status checks so IB failures don't break the dashboard. Changes in:
+- `services/ib_client_service.py` (logs, connection info)
+- `controllers/ServiceController.py` (IB status + connect overrides)
+- `api/routes.py` (IB endpoints)
+- `frontend/dashboard.py` (IB connection settings UI)
+- `ib_troubleshoot.py` (local troubleshooting tool - this was really useful)
+
+**VPIN/regime improvements:**
+
+Fixed VPIN bar-based classification to avoid saturation and keep outputs useful for regime detection. Added a rule-based regime mode (`REGIME_MODE=rule`) as a fallback when the ML model assumptions break. Changes in:
+- `services/vpin_service.py`
+- `controllers/ServiceController.py`
+
+## Risk Register
+
+Things that could go wrong and how I'm dealing with them:
+
+| Risk | Likelihood | Impact | Mitigation | Test/Evidence |
+|---|---|---|---|---|
+| IB not running / wrong port | High | Medium | Feature flag + graceful degradation; troubleshooting script | `ib_troubleshoot.py`, `/api/ib/*` endpoints |
+| IB market data permissions | Medium | Medium | Document the limitation; fall back to historical data | `ib_troubleshoot.py` logs; dashboard messaging |
 | Malformed/duplicated CSV columns | High | High | Normalize columns on load; normalization script | `services/plotService.py`, `normalize_historical_data.py` |
-| Model degeneracy (regime always crash) | Medium | High | VPIN heuristic fix; rule fallback | `services/vpin_service.py`, `REGIME_MODE=rule` |
+| Model always predicts crash | Medium | High | VPIN heuristic fix; rule-based fallback | `services/vpin_service.py`, `REGIME_MODE=rule` |
 | Heavy deps break CI (FinBERT/torch) | High | High | Disable via env var in CI | `.github/workflows/ci.yml`, `services/sentimentService.py` |
-| Performance regressions (tick latency) | Medium | High | Perf measurement tests; remove redundant CSV IO | `test/integration_testing/test_perf_*`, `services/vol_service.py` |
-| Great Expectations version mismatch | Medium | Medium | Pin dev deps; export suites in CI | `requirements-dev.txt`, `scripts/export_gx_suites.py` |
-| Large datasets not in repo | High | Medium | CI uses synthetic export; tests use temp data | `scripts/export_gx_suites.py`, TestClient tests |
+| Performance regressions | Medium | High | Performance tests; removed redundant CSV IO | `test/integration_testing/test_perf_*`, `services/vol_service.py` |
+| Great Expectations version issues | Medium | Medium | Pin dev deps; export suites in CI | `requirements-dev.txt`, `scripts/export_gx_suites.py` |
+| Large datasets not in repo | High | Medium | CI uses synthetic data; tests use temp data | `scripts/export_gx_suites.py`, TestClient tests |
 
----
+## Monitoring
 
-## 5. Process monitoring (visibility)
+I'm tracking:
+- CI pass rate (GitHub Actions)
+- Coverage % and trend (`coverage.xml`, `htmlcov/`)
+- Open defects (GitHub Issues or `docs/KNOWN_ISSUES.md` if I create one)
+- Performance: `/api/tick` median/p95; plot generation time (printed by perf tests)
 
-Weekly metrics (evidence-backed):
-- **CI pass rate** (GitHub Actions)
-- **Coverage % + trend** (`coverage.xml`, `htmlcov/`)
-- **Open defects list** (GitHub Issues or `docs/KNOWN_ISSUES.md` if used)
-- **Performance**: `/api/tick` median/p95; plot generation time (printed by perf tests)
+## Advanced Testing Techniques
 
----
+### Property-Based Testing (Hypothesis)
 
-## 6. Advanced Testing Techniques
+Financial metrics need to follow math rules no matter what input data we get. Regular example-based tests can't cover all possible market price combinations, so I'm using Hypothesis.
 
-### 4.1 Property-Based Testing (Hypothesis)
-* **Rationale:** Financial metrics must adhere to mathematical invariants regardless of input data. Standard example-based tests are insufficient to cover the infinite state space of market prices.
-* **Tool:** `hypothesis`
-* **Implemented evidence:**
-    * **Invariant 1 (Volatility):** For any sequence of High/Low/Open/Close prices generated, the Yang-Zhang volatility $\sigma^2_{YZ}$ must always be $\geq 0$.
-    * **Invariant 2 (VPIN):** VPIN must always be in the range $[0, 1]$.
-    * Evidence: `test/unit_testing/Quant_services/*`
+**Tool:** `hypothesis`
 
-### 4.2 Mutation Testing
-* **Rationale:** To quantitatively measure the quality of the test suite (Yield). We must ensure that our tests actually fail if the underlying logic is broken.
-* **Tool:** `mutmut` or `cosmic-ray`
-* **Implementation Plan:**
-    * Run mutation analysis on the `volatility_service.py` and `vpin_service.py` modules.
-    * **Target:** Achieve a mutation score > 80% (i.e., kill 80% of generated mutants).
-    * **Example mutant:** If the code changes `VPIN < 0.5` (Regime 0 boundary) to `VPIN <= 0.5`, is there a test case specifically at `0.5` that fails?
+**What I implemented:**
+- **Invariant 1 (Volatility):** For any OHLC price sequence, Yang-Zhang volatility σ²_YZ must be ≥ 0.
+- **Invariant 2 (VPIN):** VPIN must always be in [0, 1].
 
-### 4.3 Metamorphic Testing (Machine Learning)
-* **Rationale:** It is the "Oracle Problem"—we do not always know the "correct" regime for unseen data.
-* **Technique:** We test relationships between inputs and outputs.
-* **Metamorphic Relations:**
-    * **Relation 1 (Monotonicity):** If we take a historical data slice classified as "Normal" and artificially inject high volatility and toxic order flow (perturbation), the probability of "Crash" regime classification should *increase* or stay the same. It should never *decrease*.
-    * **Relation 2 (Stability):** Adding white noise (random small variations < 0.01%) to the price data should not flip the classification from "Normal" to "Crash".
+Evidence: `test/unit_testing/Quant_services/*`
 
----
+### Mutation Testing
 
-## 7. CI/CD Pipeline Automation (implemented LO5 evidence)
+Need to measure test quality (yield). Gotta make sure tests actually catch bugs when the code is broken.
 
-* **Platform:** GitHub Actions
-* **Workflow file:** `.github/workflows/ci.yml` (repo root)
-* **Automated steps:** install minimal deps, run pytest with coverage, export GX suite docs, upload artefacts.
-* **Why it matters (lecture alignment):** cost-effective repeatability + visibility; prevents “big bang” integration and makes results auditable.
+**Tool:** `mutmut` (tried `cosmic-ray` but went with mutmut - seemed easier to set up)
 
-## 8. Traceability Matrix (LO1 linkage)
-RiskBeacon uses an LO1 requirements set `RB-REQ-01..RB-REQ-17` defined in `docs/requirements.md` and mapped to tests in `docs/requirements_to_tests.md`.
+**Plan:**
+- Run mutation analysis on `volatility_service.py` and `vpin_service.py`.
+- **Target:** Get mutation score > 80% (kill 80% of mutants).
+- **Example:** If code changes `VPIN < 0.5` to `VPIN <= 0.5`, is there a test at exactly 0.5 that fails?
 
-Summary table (high-signal examples):
+### Metamorphic Testing (ML)
+
+The "Oracle Problem" - we don't always know the "correct" regime for new data. So instead of testing exact values, I'm testing relationships between inputs and outputs.
+
+**Metamorphic Relations:**
+- **Relation 1 (Monotonicity):** If we take "Normal" data and add high volatility + toxic order flow, the "Crash" probability should increase or stay the same. Never decrease.
+- **Relation 2 (Stability):** Adding small noise (< 0.01%) shouldn't flip classification from "Normal" to "Crash".
+
+## CI/CD Pipeline
+
+Using GitHub Actions. Workflow is in `.github/workflows/ci.yml` (repo root).
+
+It installs dependencies, runs pytest with coverage, exports GX suite docs, uploads artifacts. Makes testing repeatable and visible. Prevents "big bang" integration issues and keeps results traceable.
+
+## Traceability
+
+RiskBeacon uses requirements `RB-REQ-01..RB-REQ-17` from `docs/requirements.md`, mapped to tests in `docs/requirements_to_tests.md`.
+
+**Some examples:**
 
 | Requirement ID | Description | Test component(s) | File location(s) |
-| :--- | :--- | :--- | :--- |
-| **RB-REQ-04** | Generate 5 plots per ticker | System | `test/integration_testing/test_api_plot_generation.py` (planned), `services/plotService.py` (fix evidence) |
-| **RB-REQ-06** | VPIN in [0,1] | Unit/Property + GX | `test/unit_testing/Quant_services/test_vpin_invariants.py` (planned), `test/data_validation/test_gx_market_data.py` |
+|---|---|---|---|
+| **RB-REQ-04** | Generate 5 plots per ticker | System | `test/integration_testing/test_api_plot_generation.py`, `services/plotService.py` |
+| **RB-REQ-06** | VPIN in [0,1] | Unit/Property + GX | `test/unit_testing/Quant_services/test_vpin_invariants.py`, `test/data_validation/test_gx_market_data.py` |
 | **RB-REQ-12** | Reproducible ML artifacts | MLOps (MLflow) | `test/mlops/test_mlflow_tracking.py` |
 | **RB-REQ-15** | IB failures degrade gracefully | Integration | `ib_troubleshoot.py`, `api/routes.py`, `services/ib_client_service.py` |
 
----
+## Plan Evolution
 
-## 9. Plan evolution (iterations tied to evidence + commit IDs)
-This plan evolved based on defects encountered during development and testing:
+This plan changed as I found bugs during development and testing:
 
-* **Iteration 1 — Plot failure → schema validation + repair tooling**
-    * Observation: plot generation could fail due to duplicate column names after normalization (`VPIN` + `vpin` → duplicated `vpin`).
-    * Response: fixed plot loader, added GX schema checks, and added `normalize_historical_data.py` to repair data.
-    * Evidence: `services/plotService.py`, `test/data_validation/*`, `normalize_historical_data.py` (e.g. commits: `bda8aec`, `0d5997f`).
+**Iteration 1 — Plot failure:**
 
-* **Iteration 2 — IB integration → diagnosable connectivity and graceful degradation**
-    * Observation: IB connectivity is environment-dependent (ports, permissions) and should not break the dashboard.
-    * Response: implemented IB endpoints + connection settings UI + `ib_troubleshoot.py` and ensured API still works when IB fails.
-    * Evidence: `services/ib_client_service.py`, `api/routes.py`, `frontend/dashboard.py`, `ib_troubleshoot.py` (e.g. commit: `7fa6ada`).
+Plot generation was failing because of duplicate column names after normalization (`VPIN` + `vpin` → duplicate `vpin`). Fixed plot loader, added GX schema checks, created `normalize_historical_data.py` to repair data. Evidence: `services/plotService.py`, `test/data_validation/*`, `normalize_historical_data.py` (commits: `bda8aec`, `0d5997f`).
 
-* **Iteration 3 — Regime/VPIN stability → explainability + fallback mode**
-    * Observation: bar-based VPIN classification can saturate; ML regimes can become degenerate when input distributions are pathological.
-    * Response: improved VPIN heuristic and added `REGIME_MODE=rule` fallback; strengthened data validation + reproducibility evidence (MLflow).
-    * Evidence: `services/vpin_service.py`, `controllers/ServiceController.py`, `test/mlops/test_mlflow_tracking.py` (e.g. commits: `2cceb5c`, `c1cae2d`).
+**Iteration 2 — IB integration:**
 
----
+IB connectivity depends on environment (ports, permissions) and was breaking the dashboard. Added IB endpoints, connection settings UI, `ib_troubleshoot.py`, made sure API works when IB fails. Evidence: `services/ib_client_service.py`, `api/routes.py`, `frontend/dashboard.py`, `ib_troubleshoot.py` (commit: `7fa6ada`).
 
-## 10. Evaluation of Limitations (LO4)
-* **Data drift:** Tests use historical data. We acknowledge that this does not guarantee future performance (covariate shift).
-* **Oracle limit:** We assume the "ground truth" labels in the training set are correct, but market regimes are subjective.
-* **Time-series constraint:** Time-series split is used for backtesting to prevent look-ahead bias, as documented in the backtesting implementation.
+**Iteration 3 — Regime/VPIN stability:**
+
+VPIN classification was saturating; ML regimes were breaking with weird input distributions. Improved VPIN heuristic, added `REGIME_MODE=rule` fallback, strengthened data validation and MLflow tracking. Evidence: `services/vpin_service.py`, `controllers/ServiceController.py`, `test/mlops/test_mlflow_tracking.py` (commits: `2cceb5c`, `c1cae2d`).
+
+## Limitations
+
+**Data drift:** Tests use historical data. This doesn't guarantee future performance (covariate shift).
+
+**Oracle limit:** We assume training labels are correct, but market regimes are somewhat subjective.
+
+**Time-series constraint:** Using time-series splits for backtesting to prevent look-ahead bias (documented in backtesting code).
