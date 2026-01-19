@@ -176,7 +176,3 @@ GitHub Actions workflows:
   - Tests high-risk quant services
   - Generates mutation scores
 
-**Author**: Arsenii Harbar (s2529401)  
-**Course**: Software Testing 2025/6  
-**Institution**: University of Edinburgh
-
