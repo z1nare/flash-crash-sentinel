@@ -176,43 +176,6 @@ GitHub Actions workflows:
   - Tests high-risk quant services
   - Generates mutation scores
 
-## 🎓 Coursework Information
-
-This project was developed for **Software Testing 2025/6** coursework at the University of Edinburgh.
-
-### Learning Outcomes Demonstrated
-
-1. **LO1**: Requirements analysis and testing strategies
-2. **LO2**: Test plan design and code instrumentation
-3. **LO3**: Wide variety of testing techniques (unit, integration, property-based, performance, data validation, backtesting)
-4. **LO4**: Evaluation of testing limitations and statistical methods
-5. **LO5**: Code reviews, inspections, and CI/CD automation
-
-### Test Metrics
-
-- **Tests**: 200 passed, 3 skipped, 4 xfailed
-- **Coverage**: 76% overall (api: 80%, services: 66-96%, controllers: 67%)
-- **Performance**: `/api/tick` median=14.16ms, p95=19.83ms (target: <50ms/<150ms)
-- **Mutation Testing**: 109+ mutants generated for VPIN service
-
-See `docs/portfolio/ST_portfolio.tex` for complete coursework portfolio.
-
-## 🤝 Contributing
-
-This is a coursework project. For questions or issues, please refer to the documentation in `docs/`.
-
-## 📝 License
-
-This project is developed for educational purposes as part of the Software Testing course at the University of Edinburgh.
-
-## 🔗 Links
-
-- **Repository**: [GitHub Repository](https://github.com/z1nare/flash-crash-sentinel)
-- **CI/CD**: Check GitHub Actions for latest test results
-- **API Documentation**: Available at `/docs` when API is running
-
----
-
 **Author**: Arsenii Harbar (s2529401)  
 **Course**: Software Testing 2025/6  
 **Institution**: University of Edinburgh
