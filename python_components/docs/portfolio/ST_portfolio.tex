@@ -1,4 +1,4 @@
-\documentclass{article}
+\documentclass[11pt]{article}
 
 % Language setting
 % Replace `english' with e.g. `spanish' to change the document language
@@ -6,113 +6,76 @@
 
 % Set page size and margins
 % Replace `letterpaper' with `a4paper' for UK/EU standard size
-\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+\usepackage[letterpaper,top=1.5cm,bottom=1.5cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
 
 % Useful packages
 \usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage[colorlinks=true, allcolors=blue]{hyperref}
 \usepackage{enumitem}
-\setlist{nosep}
-\setlength{\parskip}{3pt}
+\setlist{nosep,itemsep=1pt,parsep=1pt}
+\setlength{\parskip}{1pt}
 
 \title{Software Testing 2025/6 Portfolio}
 \author{Arsenii Harbar | s2529401}
 
 \begin{document}
 \maketitle
+
 \textbf{Repository:} \url{https://github.com/z1nare/flash-crash-sentinel} (read access granted for coursework assessment)
 
 \section{Outline of the Software Being Tested}
 \textbf{RiskBeacon} is a Python-based real-time market risk monitoring system (FastAPI backend + Streamlit dashboard) that ingests OHLCV ticks (\texttt{POST /api/tick}), computes quantitative risk metrics (VPIN, Yang--Zhang volatility, regime classification), persists results to per-ticker CSVs, and generates dashboard-ready Plotly HTML artifacts (\texttt{POST /api/plots/generate}). The system is high-risk because errors can misrepresent market stress; therefore the test process targets quantitative invariants, robustness to malformed data, external dependency failures (Interactive Brokers), and performance under load. Requirements and traceability are documented in \texttt{docs/requirements.md} and \texttt{docs/requirements\_to\_tests.md}.
 
 \section{Learning Outcomes}
-\textit{This is the main part of the portfolio where you describe how you have gone about meeting each of the subcriteria.}
 \begin{enumerate}
-\item \textbf{Analyze requirements to determine appropriate testing strategies} \marginpar{[default 20\%]}
+\item \textbf{Analyze requirements to determine appropriate testing strategies} \marginpar{[20\%]}
 \begin{enumerate}
 \item \textbf{Range of requirements, functional requirements, measurable quality attributes, qualitative requirements}\\
-\textbf{Range:} I defined 17 testable requirements (\texttt{RB-REQ-01..RB-REQ-17}) spanning functional correctness (tick persistence, plot generation), quantitative invariants (VPIN in $[0,1]$, volatility $\ge 0$), robustness (bad CSV lines, missing sentiment, IB failure), performance targets (latency/time), and MLOps reproducibility (MLflow artifacts). Evidence: \texttt{docs/requirements.md}.
+\textbf{Range:} 17 testable requirements (\texttt{RB-REQ-01..RB-REQ-17}) spanning functional correctness (tick persistence, plot generation), quantitative invariants (VPIN in $[0,1]$, volatility $\ge 0$), robustness (bad CSV lines, missing sentiment, IB failure), performance targets (latency/time), and MLOps reproducibility (MLflow artifacts). Evidence: \texttt{docs/requirements.md}.
 
 \item \textbf{Level of requirements, system, integration, unit}\\
-\textbf{Levels:} requirements explicitly span unit (RB-REQ-06/07/09), integration (RB-REQ-02/13), and system (RB-REQ-01/03/04/05/14/15/16/17). Evidence: \texttt{docs/requirements.md} (each requirement includes a level) and traceability: \texttt{docs/requirements\_to\_tests.md}.
+\textbf{Levels:} Requirements span unit (RB-REQ-06/07/09), integration (RB-REQ-02/13), and system (RB-REQ-01/03/04/05/14/15/16/17). Evidence: \texttt{docs/requirements.md} (each requirement includes a level) and traceability: \texttt{docs/requirements\_to\_tests.md}.
 
 \item \textbf{Identifying test approach for chosen attributes}\\
-\textbf{Testing philosophy (lecture-aligned):}
-\begin{itemize}
-  \item \textbf{Verification vs validation:} verification is requirements-driven tests + automated checks (pytest, GX, MLflow, perf). Validation is whether the Streamlit dashboard supports risk monitoring decisions (manual scenario checks + stable/fast UX).
-  \item \textbf{Optimistic vs pessimistic inaccuracy:} optimistic testing can miss faults; mitigated via redundancy (unit + property + integration + perf + CI). Pessimistic analysis may reject correct artifacts due to approximation/tool limits (GX version differences); mitigated via restriction and documentation.
-  \item \textbf{A\&T principles (repo examples):}
-  \begin{itemize}
-    \item \textbf{Sensitivity:} deterministic unit tests for services (\texttt{test/unit\_testing/service\_modules/*}).
-    \item \textbf{Redundancy:} VPIN/vol checked by invariants (Hypothesis) + data validation (GX) + integration/perf.
-    \item \textbf{Restriction:} disable heavy FinBERT download in CI with \texttt{RISKBEACON\_DISABLE\_FINBERT=true} (\texttt{.github/workflows/ci.yml} as \$env variable).
-    \item \textbf{Partition:} category-partitioning for \texttt{/api/tick} inputs (see LO3) + boundary cases in tests.
-    \item \textbf{Visibility:} CI artifacts (coverage XML/HTML, exported GX suites) and perf prints.
-    \item \textbf{Feedback:} defects (plot crash, VPIN saturation, CI/GX brittleness) drove new tests and instrumentation (commits \texttt{0d5997f}, \texttt{c1cae2d}, \texttt{ed7f133}).
-  \end{itemize}
-\end{itemize}
+\textbf{Testing philosophy:} Verification (requirements-driven tests + automated checks: pytest, GX, MLflow, perf) vs validation (dashboard fitness-for-purpose). Optimistic vs pessimistic inaccuracy mitigated via redundancy and restriction. \textbf{A\&T principles:} Sensitivity (unit tests: \texttt{test/unit\_testing/service\_modules/*}), Redundancy (VPIN/vol: Hypothesis invariants + GX + integration), Restriction (FinBERT disabled in CI via \texttt{RISKBEACON\_DISABLE\_FINBERT=true}), Partition (category-partitioning for \texttt{/api/tick} inputs), Visibility (CI artifacts, perf prints), Feedback (defect-driven evolution: commits \texttt{0d5997f}, \texttt{c1cae2d}, \texttt{ed7f133}).
 
 \item \textbf{Assess the appropriateness of your chosen testing approach}\\
-\textbf{Appropriateness:} approaches match the risk profile: invariants for oracle-free quant correctness, integration tests for API/CSV side-effects, perf tests for latency targets, and CI automation for repeatability and visibility. Known limitations (IB permissions/market hours; toolchain constraints for GX on Windows without pinning) are documented and mitigated via fallbacks (\texttt{ib\_troubleshoot.py}, pinned \texttt{requirements-dev.txt}).
+\textbf{Appropriateness:} Approaches match risk profile: invariants for oracle-free quant correctness, integration for API/CSV side-effects, perf for latency targets, CI for repeatability. Limitations (IB permissions/market hours; GX Windows toolchain) documented and mitigated (\texttt{ib\_troubleshoot.py}, pinned \texttt{requirements-dev.txt}).
 \end{enumerate}
-\item \textbf{Design and implement comprehensive test plans with instrumented code} \marginpar{[default 20\%]}
+\item \textbf{Design and implement comprehensive test plans with instrumented code} \marginpar{[20\%]}
 \begin{enumerate}
 \item \textbf{Construction of the test plan}\\
-\textbf{Auditable plan:} \texttt{docs/PLAN.md} defines scope, a test inventory table (tests $\rightarrow$ files $\rightarrow$ RB-REQs), a risk register (IB, malformed CSVs, heavy deps), and monitoring metrics (coverage trend, CI pass rate, perf med/p95).
+\textbf{Plan:} \texttt{docs/PLAN.md} defines scope, test inventory (tests $\rightarrow$ files $\rightarrow$ RB-REQs), risk register (IB, malformed CSVs, heavy deps), and monitoring metrics (coverage trend, CI pass rate, perf med/p95).
 
 \item \textbf{Evaluation of the quality of the test plan}\\
-\textbf{Quality assessment:} the plan prioritises the critical path (ingestion $\rightarrow$ persistence $\rightarrow$ plots) early to maximise leverage (fault cost grows with time). Residual gaps are explicitly stated (metamorphic ML tests and time-series split/backtesting extensions), preventing over-claiming adequacy.
+\textbf{Quality:} Plan prioritises critical path (ingestion $\rightarrow$ persistence $\rightarrow$ plots) early. Residual gaps explicitly stated (metamorphic ML tests), preventing over-claiming.
 
 \item \textbf{Instrumentation of the code}\\
-\textbf{Instrumentation (testability changes):} robust logging and controllable behaviour were added to make failures diagnosable and tests stable: plot loader deduplication  \newline (\texttt{services/plotService.py}), fast rolling volatility cache (\texttt{services/vol\_service.py}), CI-safe sentiment flag 
-\newline(\texttt{services/sentimentService.py}), and IB status endpoints + local troubleshoot tool (\texttt{ib\_troubleshoot.py}).
+\textbf{Instrumentation:} Added logging and controllable behaviour: plot loader deduplication (\texttt{services/plotService.py}), volatility cache (\texttt{services/vol\_service.py}), CI-safe sentiment flag (\texttt{services/sentimentService.py}), IB status endpoints + troubleshoot tool (\texttt{ib\_troubleshoot.py}).
 
 \item \textbf{Evaluation of the instrumentation}\\
-\textbf{Evaluation:} instrumentation improves visibility and feedback loops (CI artifacts, logs, and deterministic harnesses). External dependency variability (IB) remains a limitation, mitigated by graceful degradation and explicit diagnostics.
+\textbf{Evaluation:} Instrumentation improves visibility and feedback (CI artifacts, logs, deterministic harnesses). IB variability mitigated via graceful degradation and diagnostics.
 \end{enumerate}
-\item \textbf{Apply a wide variety of testing techniques and compute test coverage and yield according to a variety of criteria} \marginpar{[default 20\%]}
+\item \textbf{Apply a wide variety of testing techniques and compute test coverage and yield according to a variety of criteria} \marginpar{[25\%]}
 \begin{enumerate}
 \item\textbf{Range of techniques}\\
-\textbf{High-signal techniques (implemented):}
-\begin{itemize}
-  \item Property-based invariants: \texttt{test/unit\_testing/Quant\_services/*}.
-  \item Deterministic unit tests for services: \texttt{test/unit\_testing/service\_modules/*}.
-  \item Integration tests (FastAPI TestClient): \\texttt{test/integration\_testing/test\_api\_tick\_persists\_csv.py}, \newline\texttt{test/integration\_testing/test\_api\_plot\_generation.py}.
-  \item Performance measurement tests: \texttt{test/integration\_testing/test\_perf\_api\_tick\_latency.py}, \texttt{test/integration\_testing/test\_perf\_plot\_generation\_time.py}.
-  \item Data validation suites (GX) + CI suite export: \texttt{test/data\_validation/*}, \newline\texttt{scripts/export\_gx\_suites.py}.
-  \item MLOps reproducibility (MLflow): \texttt{test/mlops/test\_mlflow\_tracking.py}.
-  \item Backtesting/time-series validation: \texttt{test/backtesting/research.ipynb} demonstrates reproducible strategy backtesting with train/test splits, sentiment integration, stop-loss risk management, and multi-asset portfolio support. Evidence: portfolio returns, Sharpe ratios, drawdown analysis, and look-ahead bias prevention. Links to RB-REQ-11 (time-series split enforcement).
-\end{itemize}
-
-\textbf{Combinatorial/partition evidence (category-partition for \texttt{/api/tick}):}
-\begin{center}
-\begin{tabular}{ll}
-\textbf{Category} & \textbf{Partitions / boundary cases} \\
-\hline
-Timestamp & ISO8601; invalid; timezone-aware/naive \\
-Volume & $<0$, $=0$, typical, huge (bucket fill) \\
-OHLC & ordered ($high \ge low$); missing; extreme returns \\
-Ticker & normal; lowercase; empty/whitespace \\
-\end{tabular}
-\end{center}
+\textbf{Techniques:} Property-based invariants (\texttt{test/unit\_testing/Quant\_services/*}), unit tests (\texttt{test/unit\_testing/service\_modules/*}), integration (FastAPI TestClient: \texttt{test/integration\_testing/test\_api\_tick\_persists\_csv.py}, \newline\texttt{test\_api\_plot\_generation.py}), performance measurement \newline (\texttt{test/integration\_testing/test\_perf\_*}), data validation (GX: \texttt{test/data\_validation/*}), \newline MLOps (MLflow: \texttt{test/mlops/test\_mlflow\_tracking.py}), \newline backtesting (\texttt{test/backtesting/research.ipynb} with train/test splits, sentiment integration, stop-loss, multi-asset support). \textbf{Category-partition for \texttt{/api/tick}:} Timestamp (ISO8601; invalid; timezone-aware/naive), Volume ($<0$, $=0$, typical, huge), OHLC (ordered; missing; extreme returns), Ticker (normal; lowercase; empty).
 
 \item\textbf{Evaluation criteria for the adequacy of the testing}\\
-\textbf{Adequacy criteria (lecture-aligned):} coverage (statement/branch proxy via pytest-cov) and requirement traceability (RB-REQ $\rightarrow$ tests). Yield assessment via mutation testing (\texttt{mutmut}) is implemented on high-risk quant services (\texttt{services/vpin\_service.py}) via \texttt{.github/workflows/mutation.yml}. The workflow successfully generates 109+ mutants for VPIN service, but stats collection (test discovery phase) faces challenges with dependency isolation in the mutmut sandbox. This partial success demonstrates mutation testing setup and understanding: mutants are generated, but evaluation requires manual review or local execution. Evidence: \texttt{.github/workflows/mutation.yml} (commit \texttt{297a07f}), \texttt{docs/mutation\_testing.md}.
-
-\textbf{Results evidence:} local execution produced \textbf{200 passed, 3 skipped, 4 xfailed} tests; CI produces similar results and uploads auditable artifacts (coverage + GX suites). GX is skipped on some Windows setups when GE runtime cannot construct an ephemeral validator; CI remains the audited source for exported GX suites. \textbf{xfailed} tests are deliberate, non-breaking evidence of discovered imperfections / future requirements (e.g., plot filename/endpoint mismatch) captured as executable checks. Coverage output (\texttt{coverage.xml}, \texttt{htmlcov/}), perf test prints (median/p95, elapsed time), and CI artefact uploads \newline(\texttt{.github/workflows/ci.yml}) provide reproducible evidence. Data validation produces suite exports (human-readable JSON + summary). \textbf{Backtesting evidence:} strategy backtesting on AMD/NVDA/TSLA portfolio (2023-12 to 2025-11) demonstrates out-of-sample reliability: test period (2025-04 to 2025-11) achieved 11.15\% return with Sharpe 0.82, validating strategy robustness despite full-period challenges. \newlineEvidence: \texttt{test/backtesting/research.ipynb} with reproducible train/test splits, sentiment filters, and risk management (stop-loss, fees).
+\textbf{Adequacy criteria:} Coverage (pytest-cov) and requirement traceability (RB-REQ $\rightarrow$ tests). Mutation testing (\texttt{mutmut}) on \texttt{services/vpin\_service.py} via \texttt{.github/workflows/mutation.yml} generates 109+ mutants; stats collection faces dependency isolation challenges in mutmut sandbox. \textbf{Results:} 200 passed, 3 skipped, 4 xfailed tests. CI uploads artifacts (coverage + GX suites). xfailed tests capture discovered imperfections (e.g., plot filename/endpoint mismatch) as executable checks. \textbf{Backtesting:} AMD/NVDA/TSLA portfolio (2023-12 to 2025-11), test period (2025-04 to 2025-11) achieved 11.15\% return with Sharpe 0.82. Evidence: \texttt{test/backtesting/research.ipynb} with train/test splits, sentiment filters, risk management.
 
 
 \item \textbf{Evaluation of the results}\\
-\textbf{Evaluation:} coverage is treated as an adequacy criterion (not a proof). Uncovered/low-coverage modules are justified when they depend on external artifacts \newline (\texttt{services/data\_replay\_service.py}) or optional integrations (IB). Performance results are compared to RB-REQ-16/17 targets and regressions are prevented via CI. \textbf{Backtesting evaluation:} the strategy demonstrates sound methodology (train/test split, fees included, no look-ahead bias) with defensible results for coursework. Test period performance (11.15\% return, Sharpe 0.82) validates out-of-sample reliability, while full-period challenges (-4.93\%) demonstrate honest reporting of limitations. The backtesting process validates RB-REQ-11 (time-series split enforcement) and provides evidence of strategy reliability assessment.
+\textbf{Evaluation:} Coverage treated as adequacy criterion (not proof). Low-coverage modules justified (external artifacts, optional integrations). Performance compared to RB-REQ-16/17 targets, regressions prevented via CI. Backtesting demonstrates sound methodology (train/test split, fees, no look-ahead bias). Test period (11.15\% return, Sharpe 0.82) validates out-of-sample reliability. Validates RB-REQ-11 (time-series split enforcement).
 \end{enumerate}
-\item \textbf{Evaluate the limitations of a given testing process, using statistical methods where appropriate, and summarise outcomes} \marginpar{[default 20\%]}
+\item \textbf{Evaluate the limitations of a given testing process, using statistical methods where appropriate, and summarise outcomes} \marginpar{[15\%]}
 \begin{enumerate}
 \item \textbf{Identifying gaps and omissions in the testing process}\\
-\textbf{Gaps/omissions:} (1) regime metamorphic tests (RB-REQ-10) are planned but not yet implemented; (2) backtesting/time-series split enforcement (RB-REQ-11) is \textbf{implemented} (see \texttt{test/backtesting/research.ipynb}); (3) IB live-market behaviour cannot be exhaustively tested due to permissions/market hours (justified gap: \texttt{services/ib\_client\_service.py} at 46\% coverage); (4) some error paths in \texttt{services/vol\_service.py} Yang-Zhang calculation (lines 206-310) remain uncovered due to complexity of date mapping edge cases. These are documented in \texttt{docs/PLAN.md}.
+\textbf{Gaps:} (1) Regime metamorphic tests (RB-REQ-10) planned but not implemented; (2) Backtesting (RB-REQ-11) implemented (\texttt{test/backtesting/research.ipynb}); (3) IB live-market testing limited by permissions/market hours (justified: \newline\texttt{services/ib\_client\_service.py} at 46\% coverage);\newline (4) Some error paths in \texttt{services/vol\_service.py} Yang-Zhang (lines 206-310) uncovered due to date mapping complexity. Documented in \texttt{docs/PLAN.md}.
 
 \item \textbf{Identifying target coverage/performance levels for the different testing procedures}\\
-\textbf{Targets:} performance targets are defined as measurable requirements (RB-REQ-16/17) in \texttt{docs/requirements.md}. For structural adequacy, coverage is monitored via CI artifacts; for yield, mutation testing is planned for high-risk quant services.
+\textbf{Targets:} Performance targets defined in RB-REQ-16/17 (\texttt{docs/requirements.md}). Coverage monitored via CI; mutation testing planned for high-risk quant services.
 
 \item \textbf{Discussing how the testing carried out compares with the target levels}\\
 \textbf{Measured evidence (captured from local test output):}
@@ -127,27 +90,21 @@ Coverage (\texttt{api/controllers/services}) & tracked & 76\% local / 75\% CI (p
 \end{center}
 
 \item \textbf{Discussion of what would be necessary to achieve the target level}\\
-\textbf{Current achievement:} coverage reached 76\% overall (local) with \texttt{api/routes.py} achieving 80\% target. \texttt{services/sentimentService.py} reached 86\% coverage (up from 61\%) through comprehensive FinBERT loading path tests. \texttt{controllers/ServiceController.py} improved to 67\% via initialization and exception handling tests. \texttt{services/vpin\_service.py} achieved 96\% coverage, demonstrating high-quality test coverage for critical quant logic. \textbf{To reach 80\% overall:} target remaining gaps in \texttt{services/vol\_service.py} (66\%), \texttt{services/hmm\_regime\_service.py} (65\%), and \texttt{controllers/ServiceController.py} (67\%) with additional edge case and error path tests. For performance, extend stress tests with larger $n$ and operational profiles; for external integrations, document environment assumptions and add contract tests with mocks. \textbf{Backtesting achieved:} time-series split validation is implemented with reproducible train/test splits, sentiment integration, and risk management, providing evidence of strategy reliability assessment.
+\textbf{Achievement:} Coverage 76\% overall (local), \texttt{api/routes.py} 80\%, \newline \texttt{services/sentimentService.py} 86\% (up from 61\%), \texttt{controllers/ServiceController.py} 67\%, \texttt{services/vpin\_service.py} 96\%. \textbf{To reach 80\%:} target gaps in \texttt{services/vol\_service.py} (66\%), \texttt{services/hmm\_regime\_service.py} (65\%), \texttt{controllers/ServiceController.py} (67\%) with additional edge case/error path tests. Extend stress tests; add contract tests with mocks.
 \end{enumerate}
-\item \textbf{Conduct reviews, inspections, and design and implement automated testing processes} \marginpar{[default 20\%]}
+\item \textbf{Conduct reviews, inspections, and design and implement automated testing processes} \marginpar{[20\%]}
 \begin{enumerate}    
 \item \textbf{Identify and apply review criteria to selected parts of the code and identify issues in the code}\\
-\textbf{Review criteria applied:} correctness (invariants, edge cases), robustness (bad inputs/external failures), and maintainability (testability, logging, dependency isolation). Examples of review-driven fixes:
-\begin{itemize}
-  \item Fixed volatility cache initialisation (early return prevented cache fields) - commit \texttt{ed7f133}.
-  \item Fixed unit-test package shadowing (\texttt{services} name collision) - commit \texttt{876b1d0}.
-  \item Hardened CI/GX suite export and validation across versions - commits \texttt{0d5997f}..\texttt{0f4aad2}.
-  \item \textbf{Imperfections discovered by testing (kept as non-breaking evidence):} plot generation produces ticker-prefixed filenames (e.g., \texttt{TEST\_1\_...html}) while \newline \texttt{GET /api/plots/view/\{plot\_name\}} and \texttt{GET /api/plots/list} only accept non-prefixed names. This mismatch is captured as \texttt{xfail} integration tests in \newline \texttt{test/integration\_testing/test\_api\_routes\_more\_coverage.py}, providing auditable evidence of a discovered design defect without breaking CI.
-\end{itemize}
+\textbf{Review criteria:} Correctness (invariants, edge cases), robustness (bad inputs/external failures), maintainability (testability, logging, dependency isolation). \textbf{Fixes:} Volatility cache initialisation (commit \texttt{ed7f133}), unit-test package shadowing (commit \texttt{876b1d0}), CI/GX suite export hardening (commits \texttt{0d5997f}..\texttt{0f4aad2}). \textbf{Imperfections:} Plot generation produces ticker-prefixed filenames while endpoints accept non-prefixed names; captured as \texttt{xfail} tests in \newline \texttt{test/integration\_testing/test\_api\_routes\_more\_coverage.py}.
 
-\item \textbf{Construct an appropriate CI pipeline for the software}\\
-\textbf{CI pipeline:} GitHub Actions workflow \texttt{.github/workflows/ci.yml} runs pytest with coverage and exports GX suite documentation. It uploads \texttt{coverage.xml}, \texttt{htmlcov/}, and \texttt{docs/data\_validation/gx\_suites/}.
+\item \textbf{Construct an appropriate CI pipeline for the software}
+\textbf{CI pipeline:} \newline GitHub Actions (\texttt{.github/workflows/ci.yml}) runs pytest with coverage, exports GX suites, uploads \texttt{coverage.xml}, \texttt{htmlcov/}, \texttt{docs/data\_validation/gx\_suites/}.
 
 \item\textbf{Automate some aspects of the testing}\\
-\textbf{Automation strategy (lecture-aligned):} automate repetitive execution and measurement (unit/integration/perf measurement, coverage, suite exports) while restricting heavy/optional dependencies (FinBERT disabled in CI via env flag; IB not required). This maximises cost-effectiveness and visibility.
+\textbf{Automation:} Automate repetitive execution (unit/integration/perf, coverage, suite exports) while restricting heavy dependencies (FinBERT disabled in CI; IB not required) for cost-effectiveness and visibility.
 
 \item \textbf{Demonstrate the CI pipeline functions as expected}\\
-\textbf{Evidence:} green CI runs + downloadable artefacts. Local reproducibility commands are documented in \texttt{docs/how\_to\_run.md}.
+\textbf{Evidence:} Green CI runs + downloadable artifacts. Local reproducibility: \texttt{docs/how\_to\_run.md}.
 \end{enumerate}
 \end{enumerate}
 \end{document}
