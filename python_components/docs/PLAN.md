@@ -1,71 +1,84 @@
-# RiskBeacon Test Plan (auditable LO2 evidence)
+# RiskBeacon Test Plan
 
 **Author:** Arsenii Harbar  
 **Project:** RiskBeacon (Real-Time Market Risk Monitoring System)  
 **Date:** January 2026  
-**Repo evidence:** tests live under `python_components/test/…`, requirements under `python_components/docs/requirements.md`, CI under `.github/workflows/ci.yml`.
+**Repo:** tests in `python_components/test/…`, requirements in `python_components/docs/requirements.md`, CI in `.github/workflows/ci.yml`.
 
 ## 1. Introduction
-This test plan operationalises LO1 requirements for RiskBeacon into an auditable set of test activities and evidence. It is intentionally **requirements-driven** (verification), but also includes **fitness-for-purpose validation** (dashboard usefulness) and process monitoring (visibility).
 
-**Strategy vs plan (lecture alignment):**
-- **Strategy (slowly evolving organisational asset):** CI automation + conventions (GitHub Actions workflow `.github/workflows/ci.yml`, test folder conventions, pinned dev deps).
-- **Plan (project-specific, evolves quickly):** this document + the test inventory + the “plan evolution” section tied to real defects and commits.
+This test plan maps the LO1 requirements to actual test activities and evidence for RiskBeacon. The approach is requirements-driven (verification), but I also included validation to make sure the dashboard actually works and monitoring to track how things are going.
 
-**Stakeholders and risks (context):** the primary stakeholder is a user monitoring market stability (student/trader/risk analyst). High-risk areas are correctness of quantitative metrics (VPIN/vol), robustness to malformed CSVs, external dependency failures (IB), and performance under tick load.
+**Strategy vs plan:**
+
+- **Strategy:** The long-term stuff - CI automation, conventions, GitHub Actions workflow (`.github/workflows/ci.yml`), test folder structure, pinned dev dependencies. This changes slowly.
+- **Plan:** This document, the test inventory, and the plan evolution section that tracks real bugs and commits. This changes quickly as we find issues.
+
+**Context:** The main user is someone monitoring market stability (could be a student, trader, or risk analyst). The risky parts are: getting the quant metrics right (VPIN/vol), handling bad CSV data, dealing with IB connection failures, and keeping performance good under load.
 
 ## 2. Testing Pyramid & Scope
 
-### 2.1 Unit Testing (Foundational)
-* **Scope:** Individual mathematical functions (VPIN, Yang-Zhang Volatility) and data parsing logic.
-* **Tools:** `pytest`
-* **Testing approach:**
-    * **Math verification (redundancy):** invariants (Hypothesis) + deterministic unit tests over the same services.
-    * **Boundary analysis:** Test behavior when trade volume is zero (division by zero protection in VPIN formula).
+### 2.1 Unit Testing
 
-### 2.2 Integration Testing (Mocking Strategy)
-* **Scope:** Interaction between `FastAPI`, `ServiceController`, and the new `InteractiveBrokers` adapter.
-* **Tools:** `pytest-mock`, `unittest.mock`
-* **Strategy:**
-    * **Dependency injection:** The system utilizes `RegimeModelInterface` and data provider interfaces for testability.
-    * **Mocking external feeds:** We mock the Interactive Brokers API to simulate:
-        * **Scenario A:** Standard market data stream (Happy Path).
-        * **Scenario B:** Network disconnection/timeout (Resilience).
-        * **Scenario C:** Malformed packets/Invalid Ticker symbols.
-    * **Goal:** Ensure the system degrades gracefully without crashing the Dashboard when the data feed is interrupted.
+**Scope:** Testing individual math functions (VPIN, Yang-Zhang Volatility) and data parsing logic.
 
-### 2.3 System Testing (End-to-End)
-* **Scope:** The full data pipeline from `POST /api/tick` → CSV persistence → metric computation → plots/dashboard.
-* **Tools:** `TestClient` (FastAPI), potentially Selenium/Playwright for Streamlit.
+**Tools:** `pytest`
 
-### 2.4 Test inventory (repo evidence pointers)
-This section enumerates the **tests and evidence that exist** in this repository and maps them to the LO1 requirements set (`docs/requirements.md`).
+**Approach:**
+- **Math verification:** Using Hypothesis for invariants plus regular unit tests on the same services. This gives redundancy.
+- **Boundary testing:** Made sure to test edge cases like when trade volume is zero (need to avoid division by zero in VPIN).
 
-#### Inventory table (auditable)
+### 2.2 Integration Testing
 
-| Test type | Purpose | Tooling | Evidence (file paths) | Requirements covered (examples) |
+**Scope:** Testing how FastAPI, ServiceController, and the InteractiveBrokers adapter work together.
+
+**Tools:** `pytest-mock`, `unittest.mock`
+
+**Strategy:**
+- **Dependency injection:** The code uses `RegimeModelInterface` and data provider interfaces which makes it easier to test.
+- **Mocking IB:** I mock the Interactive Brokers API to test different scenarios:
+  - **Scenario A:** Normal market data stream (happy path)
+  - **Scenario B:** Network disconnection or timeout (need resilience)
+  - **Scenario C:** Bad packets or invalid ticker symbols
+- **Goal:** Make sure the system doesn't crash the dashboard when IB fails.
+
+### 2.3 System Testing
+
+**Scope:** End-to-end testing of the full pipeline: `POST /api/tick` → CSV persistence → metric computation → plots/dashboard.
+
+**Tools:** FastAPI `TestClient`, maybe Selenium/Playwright for Streamlit later (didn't get to this).
+
+### 2.4 Test Inventory
+
+This section lists the tests and evidence in the repo and maps them to the LO1 requirements (`docs/requirements.md`).
+
+**Test Inventory Table:**
+
+| Test type | Purpose | Tooling | Evidence (file paths) | Requirements covered |
 |---|---|---|---|---|
-| Unit (example-based) | Correctness + regression for services | `pytest` | `test/unit_testing/service_modules/*` | RB-REQ-06/07/09 (via service behaviour) |
+| Unit (example-based) | Correctness + regression for services | `pytest` | `test/unit_testing/service_modules/*` | RB-REQ-06/07/09 |
 | Property-based | Quant invariants on generated inputs | `hypothesis` | `test/unit_testing/Quant_services/test_vpin_invariants.py`, `test/unit_testing/Quant_services/test_vol_yang_zhang_invariants.py` | RB-REQ-06/07 |
 | Integration (API) | Verify endpoint behaviour + filesystem effects | `fastapi.testclient` | `test/integration_testing/test_api_tick_persists_csv.py`, `test/integration_testing/test_api_plot_generation.py` | RB-REQ-01/04/14 |
-| Performance (measure-only) | Latency/time evidence | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
-| Data validation | Schema + invariants on datasets | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 (+ data quality evidence) |
-| MLOps | Reproducibility artefacts + signature | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
+| Performance | Latency/time measurements | `pytest` + timers | `test/integration_testing/test_perf_api_tick_latency.py`, `test/integration_testing/test_perf_plot_generation_time.py` | RB-REQ-16/17 |
+| Data validation | Schema + invariants on datasets | Great Expectations | `test/data_validation/gx_suites.py`, `test/data_validation/test_gx_market_data.py`, `test/data_validation/test_gx_sentiment_data.py` | RB-REQ-13/14 |
+| MLOps | Reproducibility artifacts | MLflow | `test/mlops/test_mlflow_tracking.py` | RB-REQ-12 |
 | Backtesting | Time-series validation + strategy reliability | `bt` (Backtrader) | `test/backtesting/research.ipynb` | RB-REQ-11 |
-| CI automation | Repeatability + visibility | GitHub Actions | `.github/workflows/ci.yml` (repo root) | LO5 evidence; supports all |
+| CI automation | Repeatability + visibility | GitHub Actions | `.github/workflows/ci.yml` | LO5 evidence; supports all |
 
-#### CI evidence artefacts (visibility)
+**CI Artifacts:**
+
 The CI workflow uploads:
-- coverage: `coverage.xml`, `htmlcov/`
-- GX suite export docs: `docs/data_validation/gx_suites/`
+- Coverage reports: `coverage.xml`, `htmlcov/`
+- GX suite exports: `docs/data_validation/gx_suites/`
 
-#### Implemented extensions
-- Backtesting/time-series split tests (RB-REQ-11): `test/backtesting/research.ipynb` implements reproducible strategy backtesting with train/test splits (70/30), sentiment integration, stop-loss risk management, and multi-asset portfolio support (AMD, NVDA, TSLA). Evidence: portfolio returns, Sharpe ratios, drawdown analysis, and look-ahead bias prevention.
+**What's Implemented:**
 
-#### Planned extensions (explicitly out-of-scope for this iteration)
-- Metamorphic regime tests (RB-REQ-10): planned if time permits.
+- Backtesting with time-series splits (RB-REQ-11): `test/backtesting/research.ipynb` has strategy backtesting with 70/30 train/test splits, sentiment integration, stop-loss, and multi-asset support (AMD, NVDA, TSLA). Shows portfolio returns, Sharpe ratios, drawdown analysis, and prevents look-ahead bias.
 
----
+**What's Not Done Yet:**
+
+- Metamorphic regime tests (RB-REQ-10): Planned but didn't get to it. Maybe later.
+
 
 ## 3. Instrumentation and testability changes (evidence)
 This section lists **concrete code changes** made to improve testability and robustness (instrumentation in the broad sense: logging, defensive parsing, explicit diagnostics, and controllable behavior).
