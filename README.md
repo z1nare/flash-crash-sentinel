@@ -12,7 +12,7 @@ RiskBeacon provides:
 - **Interactive dashboard**: Streamlit-based visualization with Plotly charts
 - **RESTful API**: FastAPI backend for programmatic access
 - **Data persistence**: CSV-based storage for historical analysis
-- **MLOps integration**: MLflow for model tracking and reproducibility
+- **MLOps integration**: MLflow for model tracking and reproducibility 
 
 ## 🏗️ Architecture
 
