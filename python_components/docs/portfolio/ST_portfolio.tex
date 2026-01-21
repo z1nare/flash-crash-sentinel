@@ -70,7 +70,7 @@
 \textbf{Results:} 200 passed, 3 skipped, 4 xfailed tests. Coverage: 76\% overall (local), 75\% CI, with \texttt{api/routes.py} at 80\%, \texttt{services/sentimentService.py} at 86\%, \texttt{services/vpin\_service.py} at 96\%. Mutation testing: 109+ mutants generated for VPIN service. Performance: \texttt{/api/tick} median/p95: 14.16ms/19.83ms (n=75); plot generation: 0.82s for 3000 rows. Backtesting: AMD/NVDA/TSLA portfolio (2023-12 to 2025-11), test period (2025-04 to 2025-11) achieved 19.90\% return with Sharpe 2.97. Evidence: \texttt{test/backtesting/research.ipynb} with train/test splits, sentiment filters, risk management.
 
 \item \textbf{Evaluation of the results}\\
-\textbf{Evaluation:} Coverage treated as adequacy criterion (not proof). Low-coverage modules justified (external artifacts, optional integrations). Performance compared to RB-REQ-16/17 targets, regressions prevented via CI. Backtesting demonstrates sound methodology (train/test split, fees, no look-ahead bias). Test period (11.15\% return, Sharpe 0.82) validates out-of-sample reliability. Validates RB-REQ-11 (time-series split enforcement).
+\textbf{Evaluation:} Coverage treated as adequacy criterion (not proof). Low-coverage modules justified (external artifacts, optional integrations). Performance compared to RB-REQ-16/17 targets, regressions prevented via CI. Backtesting demonstrates sound methodology (train/test split, fees, no look-ahead bias). Test period (19.90\% return, Sharpe 2.97) validates out-of-sample reliability. Validates RB-REQ-11 (time-series split enforcement).
 \end{enumerate}
 \item \textbf{Evaluate the limitations of a given testing process, using statistical methods where appropriate, and summarise outcomes} \marginpar{[default 20\%]}
 \begin{enumerate}
