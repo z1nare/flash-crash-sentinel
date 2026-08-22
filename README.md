@@ -1,7 +1,7 @@
 # RiskBeacon
 
 **Real-Time Market Risk Monitoring System**
-
+ 
 RiskBeacon is a Python-based real-time market risk monitoring system that ingests OHLCV (Open, High, Low, Close, Volume) market data, computes quantitative risk metrics, and provides an interactive dashboard for risk analysis. The system is designed for high-reliability risk monitoring where errors could misrepresent market stress conditions.
 
 ## 🎯 Overview
